@@ -1,7 +1,7 @@
 // index.ts
 import { createHmac } from 'crypto';
 
-import { Context, Schema, Session, h } from 'koishi';
+import { Bot, Context, Schema, Session, h } from 'koishi';
 import Fastify from 'fastify';
 import axios, { AxiosInstance } from 'axios';
 import { SocksProxyAgent } from 'socks-proxy-agent';
@@ -116,6 +116,8 @@ async function sendLiveNotification(
     ctx: Context,
     config,
     session: Session,
+    bot: Bot,
+    channelId: string,
     apiClient: AxiosInstance,
     streamData: any[]
 ) {
@@ -159,7 +161,7 @@ async function sendLiveNotification(
         if (session !== undefined) {
             await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageElements.join('\n')}`);
         } else {
-            await session.send(messageElements.join('\n'));
+            await bot.sendMessage(channelId, messageElements.join('\n'));
         }
     }
 
@@ -180,7 +182,7 @@ async function sendLiveNotification(
         if (session !== undefined) {
             await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageArr.join('\n')}`);
         } else {
-            await session.send( messageArr.join('\n') );
+            await bot.sendMessage(channelId, messageArr.join('\n'));
         }
     }
     
@@ -322,19 +324,15 @@ export async function apply(ctx: Context, config) {
                 if (body.subscription.type === 'stream.online' && event.broadcaster_user_id === broadcasterUserId) {
                     ctx.logger.info(`收到开播通知：${event.broadcaster_user_name}`);
                     isStreaming = true;
-                    
                     // 清空图片缓存，确保下次获取最新的封面图
                     coverImageCache = null;
-                    
-                    const messageToSend = await sendLiveNotification(ctx, config, undefined, apiClient, [event]);
-                    
                     for (const { platform, channelId } of config.targetPlatformChannelId) {
                         const bot = ctx.bots.find(b => b.platform === platform);
                         if (!bot) {
                             ctx.logger.warn(`未找到平台为 "${platform}" 的机器人，跳过发送。`);
                             continue;
                         }
-                        await bot.sendMessage(channelId, messageToSend);
+                        await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, [event]);
                     }
                 }
                 reply.code(200).send('OK');
@@ -417,13 +415,14 @@ export async function apply(ctx: Context, config) {
                     
                     // 清空图片缓存，确保下次获取最新的封面图
                     coverImageCache = null;
-
-                    const messageToSend = await sendLiveNotification(ctx, config, undefined, apiClient, streamData);
                     
                     for (const { platform, channelId } of config.targetPlatformChannelId) {
                         const bot = ctx.bots.find(b => b.platform === platform);
-                        if (!bot) continue;
-                        await bot.sendMessage(channelId, messageToSend);
+                        if (!bot) {
+                            ctx.logger.warn(`未找到平台为 "${platform}" 的机器人，跳过发送。`);
+                            continue;
+                        }
+                        await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData);
                     }
                 }
             } else {
@@ -480,7 +479,6 @@ export async function apply(ctx: Context, config) {
             // 只有当主播在直播时才推送
             if (streamData.length > 0) {
                 ctx.logger.info(`自动推送开播信息：${streamData[0].user_name}`);
-                const messageToSend = await sendLiveNotification(ctx, config, undefined, apiClient, streamData);
                 
                 for (const { platform, channelId } of config.targetPlatformChannelId) {
                     const bot = ctx.bots.find(b => b.platform === platform);
@@ -488,7 +486,8 @@ export async function apply(ctx: Context, config) {
                         ctx.logger.warn(`未找到平台为 "${platform}" 的机器人，跳过自动推送。`);
                         continue;
                     }
-                    await bot.sendMessage(channelId, messageToSend);
+                    await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData);
+                    // await bot.sendMessage(channelId, messageToSend);
                 }
             } else {
                 ctx.logger.info('自动推送：主播当前未开播，跳过推送。');
@@ -570,7 +569,7 @@ export async function apply(ctx: Context, config) {
 
                 const streamData = streamsResponse.data.data;
                 
-                await sendLiveNotification(ctx, config, session, apiClient, streamData);
+                await sendLiveNotification(ctx, config, session, undefined, undefined, apiClient, streamData);
                 
                 return;
             } catch (error: any) {
