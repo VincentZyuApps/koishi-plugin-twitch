@@ -158,9 +158,8 @@ async function sendLiveNotification(
 
         if (session !== undefined) {
             await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageElements.join('\n')}`);
-            return;
         } else {
-            return messageElements.join('\n');
+            await session.send(messageElements.join('\n'));
         }
     }
 
@@ -180,13 +179,11 @@ async function sendLiveNotification(
 
         if (session !== undefined) {
             await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageArr.join('\n')}`);
-            return;
         } else {
-            return messageArr.join('\n');
+            await session.send( messageArr.join('\n') );
         }
     }
     
-    return `主播 ${payload.user_name} 正在直播！\n标题：${payload.title}\n链接：${payload.url}`;
 }
 
 export async function apply(ctx: Context, config) {
