@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import axios, { AxiosInstance } from 'axios';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import cron from 'node-cron';
+import cron, { ScheduledTask } from 'node-cron';
 
 import { PROXY_PROTOCOL, MSG_FORM, TWITCH_API_BASE_URL, TWITCH_OAUTH_URL, LiveInfo } from './types';
 import { renderLiveImage } from './render';
@@ -28,12 +28,15 @@ export const Config = Schema.intersect([
             .description("消息发送形式。text=文本, image=图片, forward=合并转发(仅适用于onebot)"),
         quoteWhenSend: Schema.boolean()
             .default(true)
-            .description("发消息的时候带有引用")
+            .description("发消息的时候带有引用"),
+        localTimezoneOffset: Schema.number()
+            .min(-12).max(12).step(1).default(+8)
+            .description("本地时区偏移量。默认GMT+8 东八区")
     }).description("消息发送形式配置"),
 
     Schema.object({
-        clientId: Schema.string()
-            .description('Twitch API Client ID')
+            clientId: Schema.string()
+                .description('Twitch API Client ID')
             .required(),
         clientSecret: Schema.string()
             .description('Twitch API Client Secret')
@@ -60,8 +63,14 @@ export const Config = Schema.intersect([
             platform: Schema.string()
                 .description('目标平台'),
             channelId: Schema.string()
-                .description('目标频道 ID')
-        })).role('table').description("目标平台频道 ID 列表")
+                .description('目标频道 ID'),
+        })).role('table').description("目标平台频道 ID 列表"),
+        autoPushLiveinfoEnabled: Schema.boolean()
+            .description("是否启用自动推送直播信息")
+            .default(true),
+        autoPushLiveinfoIntervalMinute: Schema.number()
+            .min(1).max(120).step(1).default(15)
+            .description("自动推送直播信息的时间间隔。单位：分钟"),
     }),
 
     Schema.object({
@@ -129,9 +138,7 @@ async function sendLiveNotification(
         thumbnail_url: stream.thumbnail_url,
     };
     
-    const messageElements: (string | h)[] = [
-        `主播 ${payload.user_name} 正在直播！`,
-    ];
+    let messageElements = [];
 
     const profileImageBase64 = await getProfileImageAsDataUrl(ctx, config, apiClient, payload.user_login);
     const thumbnailUrl = payload.thumbnail_url.replace("{width}", "1920").replace("{height}", "1080");
@@ -139,6 +146,7 @@ async function sendLiveNotification(
 
     if (config.msgFormArr.includes(MSG_FORM.TEXT)) {
         messageElements.push(
+            `主播${payload.user_name}正在Twitch直播!`,
             `标题：${payload.title}`,
             ...(profileImageBase64 ? [h.image(profileImageBase64)] : []),
             `开播时间: ${payload.started_at}`,
@@ -164,11 +172,17 @@ async function sendLiveNotification(
         const renderRes = await renderLiveImage(ctx, payload, coverImageUrl, profileImageUrl);
         if (!renderRes) return;
 
+        const messageArr = [
+                `主播${payload.user_name}正在Twitch直播!`,
+                `${h.image(`data:image/png;base64,${renderRes}`)}`,
+                `链接：${payload.url}`,
+        ]
+
         if (session !== undefined) {
-            await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${h.image(`data:image/png;base64,${renderRes}`)}`);
+            await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageArr.join('\n')}`);
             return;
         } else {
-            return h.image(`data:image/png;base64,${renderRes}`);
+            return messageArr.join('\n');
         }
     }
     
@@ -176,12 +190,14 @@ async function sendLiveNotification(
 }
 
 export async function apply(ctx: Context, config) {
+
     let broadcasterUserId: string | null = null;
     const webhookServer = Fastify();
     let apiClient: AxiosInstance;
     let isStreaming = false; // 新增：用于跟踪开播状态
     let profileImageCache: Buffer | null = null;
     let coverImageCache: Buffer | null = null;
+    const jobs: ScheduledTask[] = []; // 新增：用于管理定时任务
 
     let proxyAgent;
     if (config.proxy.enabled) {
@@ -432,6 +448,59 @@ export async function apply(ctx: Context, config) {
         }
     }
 
+    // 新增：自动推送直播信息的核心逻辑
+    async function autoPushLiveinfo() {
+        try {
+            if (!broadcasterUserId) {
+                const usersResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/users?login=${config.broadcasterLogin}`, {
+                    headers: {
+                        'Client-ID': config.clientId,
+                        'Authorization': `Bearer ${(await apiClient.post(TWITCH_OAUTH_URL, {
+                            client_id: config.clientId,
+                            client_secret: config.clientSecret,
+                            grant_type: 'client_credentials'
+                        })).data.access_token}`
+                    }
+                });
+                broadcasterUserId = usersResponse.data.data[0].id;
+            }
+
+            const tokenResponse = await apiClient.post(TWITCH_OAUTH_URL, {
+                client_id: config.clientId,
+                client_secret: config.clientSecret,
+                grant_type: 'client_credentials',
+            });
+            const accessToken = tokenResponse.data.access_token;
+            
+            const streamsResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/streams?user_id=${broadcasterUserId}`, {
+                headers: {
+                    'Client-ID': config.clientId,
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+            });
+
+            const streamData = streamsResponse.data.data;
+            // 只有当主播在直播时才推送
+            if (streamData.length > 0) {
+                ctx.logger.info(`自动推送开播信息：${streamData[0].user_name}`);
+                const messageToSend = await sendLiveNotification(ctx, config, undefined, apiClient, streamData);
+                
+                for (const { platform, channelId } of config.targetPlatformChannelId) {
+                    const bot = ctx.bots.find(b => b.platform === platform);
+                    if (!bot) {
+                        ctx.logger.warn(`未找到平台为 "${platform}" 的机器人，跳过自动推送。`);
+                        continue;
+                    }
+                    await bot.sendMessage(channelId, messageToSend);
+                }
+            } else {
+                ctx.logger.info('自动推送：主播当前未开播，跳过推送。');
+            }
+        } catch (error: any) {
+            ctx.logger.error('自动推送直播信息失败：', error.response?.data || error.message);
+        }
+    }
+
     ctx.on('ready', async () => {
         try {
             await webhookServer.listen({ port: config.webhookPort, host: config.webhookHost });
@@ -445,6 +514,15 @@ export async function apply(ctx: Context, config) {
                 ctx.logger.info(`已启用轮询，Cron表达式：${config.pollCron}`);
                 cron.schedule(config.pollCron, checkStreamStatus);
             }
+
+            // 新增：自动推送定时任务
+            if (config.autoPushLiveinfoEnabled) {
+                const cronExp = `*/${config.autoPushLiveinfoIntervalMinute} * * * *`;
+                await autoPushLiveinfo();
+                ctx.logger.info(`已启用自动推送直播信息，时间间隔：${config.autoPushLiveinfoIntervalMinute} 分钟`);
+                const autoPushJob = cron.schedule(cronExp, autoPushLiveinfo);
+                jobs.push(autoPushJob);
+            }
         } catch (err) {
             ctx.logger.error('服务器启动失败:', err);
         }
@@ -453,6 +531,11 @@ export async function apply(ctx: Context, config) {
     ctx.on('dispose', () => {
         webhookServer.close();
         ctx.logger.info('服务器已关闭。');
+
+        for (const job of jobs) {
+            job.stop();
+            ctx.logger.info(`定时任务${job}已经停止。`)
+        }
     });
 
     // atc 指令

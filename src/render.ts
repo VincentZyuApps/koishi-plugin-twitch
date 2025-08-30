@@ -22,6 +22,7 @@ const getTemplateStr = (
           display: flex;
           justify-content: center;
           align-items: center;
+          min-height: 100vh; /* 确保body有足够高度来居中内容 */
         }
 
         .background-container {
@@ -36,21 +37,26 @@ const getTemplateStr = (
         .background-cover {
           width: 100%;
           height: 100%;
-          object-fit: cover;
+          object-fit: cover; /* 确保图片覆盖整个容器，没有留白 */
           filter: blur(30px) brightness(0.5);
-          transform: scale(1.2);
+          transform: scale(1.05); /* 稍微放大一点防止模糊边缘出现空隙 */
         }
 
         .main-container {
           position: relative;
           z-index: 2;
           display: flex;
-          justify-content: center;
+          justify-content: center; /* 水平居中 */
+          align-items: center;   /* 垂直居中 */
+          width: 100%;
+          height: 100vh; /* 撑开到视口高度 */
           padding: 32px;
+          box-sizing: border-box; /* 包含padding在内的尺寸 */
         }
 
         .card {
-          width: 720px;
+          width: 90%; /* 使卡片更宽 */
+          max-width: 800px; /* 限制最大宽度 */
           border-radius: 24px;
           overflow: hidden;
 
@@ -69,6 +75,7 @@ const getTemplateStr = (
           position: relative;
           width: 100%;
           padding-bottom: 56.25%; /* 16:9 */
+          background-color: #1a1a1f; /* 封面加载前的背景色 */
         }
 
         .cover {
@@ -117,7 +124,7 @@ const getTemplateStr = (
           color: #fff;
         }
 
-        .time {
+        .time, .viewers { /* 新增 .viewers 样式 */
           font-size: 0.95em;
           color: #bdbdbd;
         }
@@ -128,6 +135,13 @@ const getTemplateStr = (
           color: #9147ff;
           text-decoration: none;
           font-weight: 600;
+          display: flex;
+          align-items: center;
+        }
+        
+        .link::before {
+            content: '▶'; /* 播放图标 */
+            margin-right: 5px;
         }
 
         .link:hover {
@@ -137,7 +151,7 @@ const getTemplateStr = (
     </head>
     <body>
       <div class="background-container">
-        <img class="background-cover" id="background-cover" src="${coverImageUrl}" alt="背景封面"/>
+        <img class="background-cover" id="background-cover" src="${profileImageUrl}" alt="背景封面"/>
       </div>
       <div class="main-container">
         <div class="card">
@@ -152,7 +166,7 @@ const getTemplateStr = (
             <div class="game">${liveInfoPayload.game_name}</div>
             <div class="title">${liveInfoPayload.title}</div>
             <div class="time">开播时间：${liveInfoPayload.started_at.replace('T', ' ').replace('Z', '')}</div>
-            <a class="link" href="${liveInfoPayload.url}">▶ 前往直播间</a>
+            <div class="viewers">观看人数：${liveInfoPayload.viewer_count}</div> <a class="link" href="${liveInfoPayload.url}">前往直播间</a>
           </div>
         </div>
       </div>
@@ -176,6 +190,9 @@ export async function renderLiveImage(ctx: Context, liveInfoPayload: LiveInfo, c
     try {
         const html = getTemplateStr(liveInfoPayload, coverImageUrl, profileImageUrl);
 
+        // 设置一个更大的视口，以适应更宽的卡片布局
+        await page.setViewport({ width: 1000, height: 800 }); // 调整视口大小
+
         await page.setContent(html, {
             waitUntil: ['domcontentloaded']
         });
@@ -188,20 +205,27 @@ export async function renderLiveImage(ctx: Context, liveInfoPayload: LiveInfo, c
             return avatar.complete && cover.complete && backgroundCover.complete;
         }, { timeout: 15000 });
 
-        // 调整视图以适应内容
-        const mainContainer = await page.$('.main-container');
-        const boundingBox = await mainContainer.boundingBox();
+        // 获取整个body的尺寸，然后进行截图
+        const bodyHandle = await page.$('body');
+        const boundingBox = await bodyHandle.boundingBox();
         if (boundingBox) {
-            await page.setViewport({ width: Math.ceil(boundingBox.width) + 64, height: Math.ceil(boundingBox.height) + 64 });
+            // 计算截图区域，稍微扩大一点以包含阴影或边框
+            const screenshot = await page.screenshot({
+                type: 'png',
+                encoding: 'base64',
+                clip: {
+                    x: boundingBox.x,
+                    y: boundingBox.y,
+                    width: boundingBox.width,
+                    height: boundingBox.height,
+                },
+            });
+            return screenshot;
+        } else {
+            ctx.logger.error('Could not get bounding box for body.');
+            return null;
         }
-        
-        const screenshot = await page.screenshot({
-            type: 'png',
-            encoding: 'base64',
-            fullPage: false,
-        });
 
-        return screenshot;
     } catch (err) {
         ctx.logger.error('Error rendering Twitch stream image:', err);
         return null;
