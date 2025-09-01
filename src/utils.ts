@@ -66,15 +66,30 @@ export async function getProfileImageAsDataUrl(
 }
 
 /**
- * 将UTC时间字符串（如2025-08-29T05:18:35Z）转换为本地时间字符串（YYYY年MM月DD日 - HH:MM:SS）
+ * 将UTC时间字符串（如2025-08-29T05:18:35Z）转换为指定时区的时间字符串
  * @param utcTime 原始UTC时间字符串
- * @param timezoneOffset 时区偏移（如+8）
+ * @param timezoneOffset 时区偏移（如+8，表示GMT+8）
  * @returns 格式化后的本地时间字符串
  */
 export function formatToLocalTime(utcTime: string, timezoneOffset: number): string {
-  const date = new Date(utcTime);
-  // 转为本地时区
-  const local = new Date(date.getTime() + timezoneOffset * 60 * 60 * 1000);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${local.getFullYear()}年${pad(local.getMonth() + 1)}月${pad(local.getDate())}日 - ${pad(local.getHours())}:${pad(local.getMinutes())}:${pad(local.getSeconds())}`;
+    // 创建一个 Date 对象，它会解析为 UTC 时间
+    const date = new Date(utcTime);
+
+    // 获取 UTC 时间的毫秒时间戳
+    const utcTimestamp = date.getTime();
+
+    // 获取本地时区和UTC之间的毫秒差，Date.getTimezoneOffset() 返回的是分钟数，并且是负值
+    // 例如，GMT+8 的时区会返回 -480
+    const localTimezoneOffset = new Date().getTimezoneOffset() * 60 * 1000;
+
+    // 计算目标时区的毫秒差
+    const targetTimezoneOffset = timezoneOffset * 60 * 60 * 1000;
+
+    // 创建一个新的 Date 对象，表示目标时区的时间
+    // 步骤：UTC时间戳 + (本地时区偏移 - UTC) + (目标时区偏移 - UTC)
+    // 简化后：
+    const local = new Date(utcTimestamp + localTimezoneOffset + targetTimezoneOffset);
+
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${local.getFullYear()}年${pad(local.getMonth() + 1)}月${pad(local.getDate())}日 - ${pad(local.getHours())}:${pad(local.getMinutes())}:${pad(local.getSeconds())}`;
 }
