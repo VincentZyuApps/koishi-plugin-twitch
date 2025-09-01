@@ -8,7 +8,7 @@ import cron, { ScheduledTask } from 'node-cron';
 
 import { PROXY_PROTOCOL, MSG_FORM, TWITCH_API_BASE_URL, TWITCH_OAUTH_URL, LiveInfo } from './types';
 import { renderLiveImage } from './render';
-import { fetchImageAsDataUrl, formatToLocalTime, getProfileImageAsDataUrl } from './utils';
+import { fetchImageAsDataUrl, formatDateTime, formatToLocalTime, getProfileImageAsDataUrl } from './utils';
 
 
 export const name = 'twitch';
@@ -118,10 +118,12 @@ export const Config = Schema.intersect([
     }).description("网络代理相关配置"),
 ]);
 
+
 export async function apply(ctx: Context, config) {
 
     let apiClient: AxiosInstance;
-    const jobs: ScheduledTask[] = [];
+    // 更改：jobs 数组现在存储一个包含 username 和 job 的对象
+    const jobs: Array<{ username: string, job: ScheduledTask }> = [];
 
     // 定义数据库模型
     ctx.model.extend('twitch_stream_status', {
@@ -231,7 +233,7 @@ export async function apply(ctx: Context, config) {
 
     // 轮询检查函数
     async function checkStreamStatus() {
-        ctx.logger.info("开始执行轮询任务...");
+        ctx.logger.info(`(当前时间：${formatDateTime()})开始执行轮询任务... `);
         const broadcasters = config.subscribeList;
         if (!broadcasters || broadcasters.length === 0) {
             ctx.logger.warn('未配置任何主播，跳过轮询。');
@@ -364,10 +366,11 @@ export async function apply(ctx: Context, config) {
             if (config.pollCron) {
                 ctx.logger.info(`已启用轮询，Cron表达式：${config.pollCron}`);
                 const pollJob = cron.schedule(config.pollCron, checkStreamStatus);
-                jobs.push(pollJob);
+                // 更改：推入对象
+                jobs.push({ username: 'general-poll', job: pollJob });
             }
 
-            // 初始化数据库状态
+            // 初始化数据库状态并创建自动推送任务
             for (const broadcaster of config.subscribeList) {
                 await ctx.database.upsert('twitch_stream_status', [{ username: broadcaster.username, isStreaming: false }]);
 
@@ -376,7 +379,8 @@ export async function apply(ctx: Context, config) {
                     const logger = new Logger(`twitch-${broadcaster.username}`);
                     logger.info(`已启用自动推送直播信息，主播: ${broadcaster.username}，时间间隔: ${broadcaster.autoPushLiveinfoIntervalMinute} 分钟`);
                     const autoPushJob = cron.schedule(cronExp, autoPushLiveinfo);
-                    jobs.push(autoPushJob);
+                    // 更改：推入对象
+                    jobs.push({ username: broadcaster.username, job: autoPushJob });
                 }
             }
 
@@ -386,9 +390,11 @@ export async function apply(ctx: Context, config) {
     });
 
     ctx.on('dispose', () => {
-        for (const job of jobs) {
+        // 更改：遍历对象数组
+        for (const { username, job } of jobs) {
             job.stop();
-            ctx.logger.info(`定时任务已停止。`)
+            const logger = new Logger(`twitch-${username}`)
+            logger.info(`(当前时间: ${formatDateTime()})定时任务已停止。主播名: ${username} `);
         }
     });
 
@@ -430,7 +436,7 @@ export async function apply(ctx: Context, config) {
                 });
 
                 const streamData = streamsResponse.data.data;
-                logger.info(`streamData = ${JSON.stringify(streamData)}`)
+                // logger.info(`streamData = ${JSON.stringify(streamData)}`)
 
                 if (streamData.length === 0) {
                     return '主播当前没有在直播。';

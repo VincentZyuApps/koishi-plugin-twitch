@@ -1,6 +1,6 @@
 //utils.ts
 import axios, { AxiosInstance } from 'axios';
-import { Context } from 'koishi';
+import { Context, Logger } from 'koishi';
 import { TWITCH_API_BASE_URL, TWITCH_OAUTH_URL } from './types';
 
 /**
@@ -56,7 +56,8 @@ export async function getProfileImageAsDataUrl(
 
     // 3. 使用已有的 fetchImageAsDataUrl 函数下载图片并转为 Base64
     const dataUrl = await fetchImageAsDataUrl(apiClient, profileImageUrl);
-    ctx.logger.info(`已成功获取用户 ${userLogin} 的头像 Base64 数据。`);
+    const logger = new Logger(`twitch-${userLogin}`);
+    logger.info(`已成功获取用户 ${userLogin} 的头像 Base64 数据。`);
     return dataUrl;
 
   } catch (error: any) {
@@ -92,4 +93,17 @@ export function formatToLocalTime(utcTime: string, timezoneOffset: number): stri
 
     const pad = (n: number) => n.toString().padStart(2, '0');
     return `${local.getFullYear()}年${pad(local.getMonth() + 1)}月${pad(local.getDate())}日 - ${pad(local.getHours())}:${pad(local.getMinutes())}:${pad(local.getSeconds())}`;
+}
+
+
+// 辅助函数：将时间格式化为 YYYY-MM-DD - HH:MM:SS
+export function formatDateTime() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    const seconds = now.getSeconds().toString().padStart(2, '0');
+    return `${year}-${month}-${day} - ${hours}:${minutes}:${seconds}`;
 }

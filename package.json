@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-twitch",
   "description": "twitch",
-  "version": "0.0.3-alpha2",
+  "version": "0.0.3-alpha3",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
