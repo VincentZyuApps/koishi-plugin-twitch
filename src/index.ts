@@ -1,8 +1,6 @@
 // index.ts
-import { createHmac } from 'crypto';
 
-import { Bot, Context, Schema, Session, h } from 'koishi';
-import Fastify from 'fastify';
+import { Bot, Context, Logger, Schema, Session, h } from 'koishi';
 import axios, { AxiosInstance } from 'axios';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
@@ -13,10 +11,12 @@ import { renderLiveImage } from './render';
 import { fetchImageAsDataUrl, formatToLocalTime, getProfileImageAsDataUrl } from './utils';
 
 
-export const name = 'twitch-stream-notifier-fastify';
+export const name = 'twitch';
 export const inject = {
     required: ["puppeteer", "database"]
 };
+
+
 
 declare module 'koishi' {
     interface Tables {
@@ -59,6 +59,10 @@ export const Config = Schema.intersect([
         pollCron: Schema.string()
             .description('轮询查询的 Cron 表达式，例如 "0,30 * * * * *" 表示每分钟的 0 秒和 30 秒执行一次。')
             .default("0,30 * * * * *"),
+        enableWebhook: Schema.boolean()
+            .default(false)
+            .disabled().experimental()
+            .description("使用webhook而不是轮询 来查询主播是否开播。这是一个未来打算增加的功能，放一个disabled假按钮在这提醒自己。 这个功能可能会比较麻烦，可能需要把你的koishi部署到公网。再加上 我好像写不出来，有点问题hhh，所以就暂时搁置了。如果有能写出来的，欢迎fork+pr")
     }).description("Twitch 相关配置"),
 
     Schema.object({
@@ -114,81 +118,6 @@ export const Config = Schema.intersect([
     }).description("网络代理相关配置"),
 ]);
 
-
-// 抽象出解析和发送消息的函数
-async function sendLiveNotification(
-    ctx: Context,
-    config,
-    session: Session,
-    bot: Bot,
-    channelId: string,
-    apiClient: AxiosInstance,
-    streamData: any[]
-) {
-    if (streamData.length === 0) {
-        return '主播当前没有在直播。';
-    }
-
-    const stream = streamData[0];
-
-    const payload: LiveInfo = {
-        user_name: stream.user_name,
-        title: stream.title,
-        // started_at: stream.started_at,
-        started_at: formatToLocalTime(stream.started_at, config.localTimezoneOffset),
-        game_name: stream.game_name,
-        viewer_count: stream.viewer_count,
-        user_login: stream.user_login,
-        url: `https://www.twitch.tv/${stream.user_login}`,
-        profile_image_url: stream.profile_image_url,
-        thumbnail_url: stream.thumbnail_url,
-    };
-
-    let messageElements = [];
-
-    const profileImageBase64 = await getProfileImageAsDataUrl(ctx, config, apiClient, payload.user_login);
-    const thumbnailUrl = payload.thumbnail_url.replace("{width}", "1920").replace("{height}", "1080");
-    const coverImageBase64 = await fetchImageAsDataUrl(apiClient, thumbnailUrl);
-
-    if (config.msgFormArr.includes(MSG_FORM.TEXT)) {
-        messageElements.push(
-            `主播${payload.user_name}正在Twitch直播!`,
-            `标题：${payload.title}`,
-            ...(profileImageBase64 ? [h.image(profileImageBase64)] : []),
-            `开播时间: ${payload.started_at}`,
-            `游戏：${payload.game_name}`,
-            `观看人数：${payload.viewer_count}`,
-            `链接：${payload.url}`,
-            ...(coverImageBase64 ? [h.image(coverImageBase64)] : []),
-        );
-
-        if (session !== undefined) {
-            await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageElements.join('\n')}`);
-        } else {
-            await bot.sendMessage(channelId, messageElements.join('\n'));
-        }
-    }
-
-    if (config.msgFormArr.includes(MSG_FORM.IMAGE)) {
-        // Fix: Added coverImageBase64 and profileImageBase64 as arguments
-        const renderRes = await renderLiveImage(ctx, payload, coverImageBase64, profileImageBase64);
-        if (!renderRes) return;
-
-        const messageArr = [
-            `主播${payload.user_name}正在Twitch直播!`,
-            `${h.image(`data:image/png;base64,${renderRes}`)}`,
-            `链接：${payload.url}`,
-        ]
-
-        if (session !== undefined) {
-            await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageArr.join('\n')}`);
-        } else {
-            await bot.sendMessage(channelId, messageArr.join('\n'));
-        }
-    }
-
-}
-
 export async function apply(ctx: Context, config) {
 
     let apiClient: AxiosInstance;
@@ -226,6 +155,80 @@ export async function apply(ctx: Context, config) {
         ctx.logger.info('未启用代理。');
     }
 
+    // 抽象出解析和发送消息的函数
+    async function sendLiveNotification(
+        ctx: Context,
+        config,
+        session: Session,
+        bot: Bot,
+        channelId: string,
+        apiClient: AxiosInstance,
+        streamData: any[]
+    ) {
+        if (streamData.length === 0) {
+            return '主播当前没有在直播。';
+        }
+
+        const stream = streamData[0];
+
+        const payload: LiveInfo = {
+            user_name: stream.user_name,
+            title: stream.title,
+            // started_at: stream.started_at,
+            started_at: formatToLocalTime(stream.started_at, config.localTimezoneOffset),
+            game_name: stream.game_name,
+            viewer_count: stream.viewer_count,
+            user_login: stream.user_login,
+            url: `https://www.twitch.tv/${stream.user_login}`,
+            profile_image_url: stream.profile_image_url,
+            thumbnail_url: stream.thumbnail_url,
+        };
+
+        let messageElements = [];
+
+        const profileImageBase64 = await getProfileImageAsDataUrl(ctx, config, apiClient, payload.user_login);
+        const thumbnailUrl = payload.thumbnail_url.replace("{width}", "1920").replace("{height}", "1080");
+        const coverImageBase64 = await fetchImageAsDataUrl(apiClient, thumbnailUrl);
+
+        if (config.msgFormArr.includes(MSG_FORM.TEXT)) {
+            messageElements.push(
+                `主播${payload.user_name}正在Twitch直播!`,
+                `标题：${payload.title}`,
+                ...(profileImageBase64 ? [h.image(profileImageBase64)] : []),
+                `开播时间: ${payload.started_at}`,
+                `游戏：${payload.game_name}`,
+                `观看人数：${payload.viewer_count}`,
+                `链接：${payload.url}`,
+                ...(coverImageBase64 ? [h.image(coverImageBase64)] : []),
+            );
+
+            if (session !== undefined) {
+                await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageElements.join('\n')}`);
+            } else {
+                await bot.sendMessage(channelId, messageElements.join('\n'));
+            }
+        }
+
+        if (config.msgFormArr.includes(MSG_FORM.IMAGE)) {
+            // Fix: Added coverImageBase64 and profileImageBase64 as arguments
+            const renderRes = await renderLiveImage(ctx, payload, coverImageBase64, profileImageBase64);
+            if (!renderRes) return;
+
+            const messageArr = [
+                `主播${payload.user_name}正在Twitch直播!`,
+                `${h.image(`data:image/png;base64,${renderRes}`)}`,
+                `链接：${payload.url}`,
+            ]
+
+            if (session !== undefined) {
+                await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageArr.join('\n')}`);
+            } else {
+                await bot.sendMessage(channelId, messageArr.join('\n'));
+            }
+        }
+
+    }
+
     // 轮询检查函数
     async function checkStreamStatus() {
         ctx.logger.info("开始执行轮询任务...");
@@ -245,6 +248,7 @@ export async function apply(ctx: Context, config) {
 
             for (const broadcaster of broadcasters) {
                 const { username, targetPlatformChannelId, autoPushLiveinfoEnabled, autoPushLiveinfoIntervalMinute } = broadcaster;
+                const logger = new Logger(`twitch-${username}`);
 
                 let dbStatus = await ctx.database.get('twitch_stream_status', { username });
                 let isStreaming = dbStatus[0]?.isStreaming || false;
@@ -254,7 +258,7 @@ export async function apply(ctx: Context, config) {
                 });
 
                 if (!usersResponse.data.data.length) {
-                    ctx.logger.warn(`找不到主播 ${username}，跳过检查。`);
+                    logger.warn(`找不到主播 ${username}，跳过检查。`);
                     continue;
                 }
                 const broadcasterUserId = usersResponse.data.data[0].id;
@@ -267,20 +271,20 @@ export async function apply(ctx: Context, config) {
                 const newIsStreaming = streamData.length > 0;
 
                 if (newIsStreaming && !isStreaming) {
-                    ctx.logger.info(`轮询发现开播：${username}`);
+                    logger.info(`轮询发现开播：${username}`);
                     // 更新数据库状态
                     await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: true }]);
 
                     for (const { platform, channelId } of targetPlatformChannelId) {
                         const bot = ctx.bots.find(b => b.platform === platform);
                         if (!bot) {
-                            ctx.logger.warn(`未找到平台为 "${platform}" 的机器人，跳过发送。`);
+                            logger.warn(`未找到平台为 "${platform}" 的机器人，跳过发送。`);
                             continue;
                         }
                         await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData);
                     }
                 } else if (!newIsStreaming && isStreaming) {
-                    ctx.logger.info(`轮询发现下播：${username}`);
+                    logger.info(`轮询发现下播：${username}`);
                     await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: false }]);
 
                     const messageToSend = `主播 ${username} 已下播。`;
@@ -315,6 +319,7 @@ export async function apply(ctx: Context, config) {
 
             for (const broadcaster of broadcasters) {
                 const { username, targetPlatformChannelId, autoPushLiveinfoEnabled, autoPushLiveinfoIntervalMinute } = broadcaster;
+                const logger = new Logger(`twitch-${username}`);
 
                 if (!autoPushLiveinfoEnabled) continue;
 
@@ -322,7 +327,7 @@ export async function apply(ctx: Context, config) {
                 let isStreaming = dbStatus[0]?.isStreaming || false;
 
                 if (!isStreaming) {
-                    ctx.logger.info(`自动推送：主播 ${username} 当前未开播，跳过推送。`);
+                    logger.info(`自动推送：主播 ${username} 当前未开播，跳过推送。`);
                     continue;
                 }
 
@@ -337,12 +342,12 @@ export async function apply(ctx: Context, config) {
 
                 const streamData = streamsResponse.data.data;
                 if (streamData.length > 0) {
-                    ctx.logger.info(`自动推送开播信息：${username}`);
+                    logger.info(`自动推送开播信息：${username}`);
 
                     for (const { platform, channelId } of targetPlatformChannelId) {
                         const bot = ctx.bots.find(b => b.platform === platform);
                         if (!bot) {
-                            ctx.logger.warn(`未找到平台为 "${platform}" 的机器人，跳过自动推送。`);
+                            logger.warn(`未找到平台为 "${platform}" 的机器人，跳过自动推送。`);
                             continue;
                         }
                         await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData);
@@ -368,7 +373,8 @@ export async function apply(ctx: Context, config) {
 
                 if (broadcaster.autoPushLiveinfoEnabled) {
                     const cronExp = `*/${broadcaster.autoPushLiveinfoIntervalMinute} * * * *`;
-                    ctx.logger.info(`已启用自动推送直播信息，主播: ${broadcaster.username}，时间间隔: ${broadcaster.autoPushLiveinfoIntervalMinute} 分钟`);
+                    const logger = new Logger(`twitch-${broadcaster.username}`);
+                    logger.info(`已启用自动推送直播信息，主播: ${broadcaster.username}，时间间隔: ${broadcaster.autoPushLiveinfoIntervalMinute} 分钟`);
                     const autoPushJob = cron.schedule(cronExp, autoPushLiveinfo);
                     jobs.push(autoPushJob);
                 }
@@ -400,8 +406,8 @@ export async function apply(ctx: Context, config) {
                 }
             }
 
-            ctx.logger.info(`检查主播开播状态：${targetUsername}`);
-
+            const logger = new Logger(`twitch-${targetUsername}`);
+            logger.info(`检查主播开播状态：${targetUsername}`);
 
             try {
                 const tokenResponse = await apiClient.post(TWITCH_OAUTH_URL, {
@@ -424,7 +430,7 @@ export async function apply(ctx: Context, config) {
                 });
 
                 const streamData = streamsResponse.data.data;
-                ctx.logger.info(`streamData = ${JSON.stringify(streamData)}`)
+                logger.info(`streamData = ${JSON.stringify(streamData)}`)
 
                 if (streamData.length === 0) {
                     return '主播当前没有在直播。';
@@ -434,7 +440,7 @@ export async function apply(ctx: Context, config) {
 
                 return;
             } catch (error: any) {
-                ctx.logger.error('检查开播状态失败：', error.response?.data || error.message);
+                logger.error('检查开播状态失败：', error.response?.data || error.message);
                 return '检查开播状态时发生错误，请检查日志。';
             }
         });
