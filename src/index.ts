@@ -1,15 +1,18 @@
 // index.ts
 
-import { Bot, Context, Logger, Schema, Session, h } from 'koishi';
+import { Bot, Context, Logger, Session, h } from 'koishi';
 import axios, { AxiosInstance } from 'axios';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import cron, { ScheduledTask } from 'node-cron';
 
 import { PROXY_PROTOCOL, MSG_FORM, TWITCH_API_BASE_URL, TWITCH_OAUTH_URL, LiveInfo } from './types';
+import { Config, BroadcasterConfig } from './config';
 import { renderLiveImage } from './render';
 import { fetchImageAsDataUrl, formatDateTime, formatToLocalTime, getProfileImageAsDataUrl } from './utils';
 
+// 导出配置
+export { Config } from './config';
 
 export const name = 'twitch';
 export const inject = {
@@ -17,109 +20,7 @@ export const inject = {
 };
 
 
-
-declare module 'koishi' {
-    interface Tables {
-        twitch_stream_status: TwitchStreamStatus;
-    }
-}
-
-export interface TwitchStreamStatus {
-    username: string;
-    isStreaming: boolean;
-    lastLiveNotification: number; // UNIX timestamp
-}
-
-export const Config = Schema.intersect([
-    Schema.object({
-        msgFormArr: Schema.array(
-            Schema.union([MSG_FORM.TEXT, MSG_FORM.IMAGE, MSG_FORM.FORWARD])
-        )
-            .default([MSG_FORM.TEXT])
-            .role("checkbox")
-            .description("消息发送形式。text=文本, image=图片, forward=合并转发(仅适用于onebot)"),
-        quoteWhenSend: Schema.boolean()
-            .default(true)
-            .description("发消息的时候带有引用"),
-        localTimezoneOffset: Schema.number()
-            .min(-12).max(12).step(1).default(+8)
-            .description("本地时区偏移量。默认GMT+8 东八区")
-    }).description("消息发送形式配置"),
-
-    Schema.object({
-        clientId: Schema.string()
-            .description('Twitch API Client ID')
-            .required(),
-        clientSecret: Schema.string()
-            .description('Twitch API Client Secret')
-            .required(),
-        secret: Schema.string()
-            .description('用于验证 Twitch 请求的密钥，建议使用 10-20 位随机字符串。')
-            .required(),
-        pollCron: Schema.string()
-            .description('轮询查询的 Cron 表达式，例如 "0,30 * * * * *" 表示每分钟的 0 秒和 30 秒执行一次。')
-            .default("0,30 * * * * *"),
-        enableWebhook: Schema.boolean()
-            .default(false)
-            .disabled().experimental()
-            .description("使用webhook而不是轮询 来查询主播是否开播。这是一个未来打算增加的功能，放一个disabled假按钮在这提醒自己。 这个功能可能会比较麻烦，可能需要把你的koishi部署到公网。再加上 我好像写不出来，有点问题hhh，所以就暂时搁置了。如果有能写出来的，欢迎fork+pr")
-    }).description("Twitch 相关配置"),
-
-    Schema.object({
-        subscribeList: Schema.array(Schema.object({
-            username: Schema.string()
-                .description("主播名字，比如主播直播间地址是https://www.twitch.tv/vincentzyu/， 那么就填入vincentzyu")
-                .required(),
-            targetPlatformChannelId: Schema.array(Schema.object({
-                platform: Schema.string()
-                    .description('目标平台(比如qq,onebot,discord...)')
-                    .required(),
-                channelId: Schema.string()
-                    .description('目标频道 ID(用inspect指令查看)')
-                    .required(),
-            })).role('table').description("目标平台频道 ID 列表"),
-            autoPushLiveinfoEnabled: Schema.boolean()
-                .description("是否启用自动推送直播信息")
-                .default(true),
-            autoPushLiveinfoIntervalMinute: Schema.number()
-                .min(1).max(120).step(1).default(15)
-                .description("自动推送直播信息的时间间隔。单位：分钟"),
-        })).default([{
-                username: "vincentzyu",
-                targetPlatformChannelId: [{
-                    platform: "onebot",
-                    channelId: ""
-                }],
-                autoPushLiveinfoEnabled: true,
-                autoPushLiveinfoIntervalMinute: 15,
-            }])
-            .description("订阅主播列表"),
-    }).description("订阅相关配置"),
-
-    Schema.object({
-        proxy: Schema.object({
-            enabled: Schema.boolean()
-                .description('是否启用代理。')
-                .default(true),
-            protocol: Schema.union([
-                Schema.const(PROXY_PROTOCOL.HTTP).description("HTTP 代理"),
-                Schema.const(PROXY_PROTOCOL.HTTPS).description("HTTPS 代理"),
-                Schema.const(PROXY_PROTOCOL.SOCKS4).description("SOCKS4 代理"),
-                Schema.const(PROXY_PROTOCOL.SOCKS5).description("SOCKS5 代理"),
-                Schema.const(PROXY_PROTOCOL.SOCKS5H).description("SOCKS5h 代理 (支持远程DNS)"),
-            ]).role('radio').default(PROXY_PROTOCOL.SOCKS5H),
-            host: Schema.string()
-                .description('代理地址。')
-                .default('192.168.31.84'),
-            port: Schema.number()
-                .description('代理端口。')
-                .default(7891)
-        })
-    }).description("网络代理相关配置"),
-]);
-
-
-export async function apply(ctx: Context, config) {
+export async function apply(ctx: Context, config: Config) {
 
     let apiClient: AxiosInstance;
     // 更改：jobs 数组现在存储一个包含 username 和 job 的对象
@@ -196,12 +97,10 @@ export async function apply(ctx: Context, config) {
             messageElements.push(
                 `主播${payload.user_name}正在Twitch直播!`,
                 `标题：${payload.title}`,
-                ...(profileImageBase64 ? [h.image(profileImageBase64)] : []),
                 `开播时间: ${payload.started_at}`,
                 `游戏：${payload.game_name}`,
                 `观看人数：${payload.viewer_count}`,
                 `链接：${payload.url}`,
-                ...(coverImageBase64 ? [h.image(coverImageBase64)] : []),
             );
 
             if (session !== undefined) {
@@ -211,7 +110,27 @@ export async function apply(ctx: Context, config) {
             }
         }
 
-        if (config.msgFormArr.includes(MSG_FORM.IMAGE)) {
+        // RAW_IMAGE: 直接发送头像 + 封面图
+        if (config.msgFormArr.includes(MSG_FORM.RAW_IMAGE)) {
+            const rawImageElements = [
+                `主播${payload.user_name}正在Twitch直播!`,
+                ...(profileImageBase64 ? [h.image(profileImageBase64)] : []),
+                `开播时间: ${payload.started_at}`,
+                `游戏：${payload.game_name}`,
+                `观看人数：${payload.viewer_count}`,
+                `链接：${payload.url}`,
+                ...(coverImageBase64 ? [h.image(coverImageBase64)] : []),
+            ];
+
+            if (session !== undefined) {
+                await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${rawImageElements.join('\n')}`);
+            } else {
+                await bot.sendMessage(channelId, rawImageElements.join('\n'));
+            }
+        }
+
+        // PUPPETEER_IMAGE: Puppeteer 渲染模板图
+        if (config.msgFormArr.includes(MSG_FORM.PUPPETEER_IMAGE)) {
             // Fix: Added coverImageBase64 and profileImageBase64 as arguments
             const renderRes = await renderLiveImage(ctx, payload, coverImageBase64, profileImageBase64);
             if (!renderRes) return;
@@ -302,14 +221,11 @@ export async function apply(ctx: Context, config) {
         }
     }
 
-    // 自动推送直播信息的核心逻辑
-    async function autoPushLiveinfo() {
-        ctx.logger.info("开始执行自动推送任务...");
-        const broadcasters = config.subscribeList;
-        if (!broadcasters || broadcasters.length === 0) {
-            ctx.logger.warn('未配置任何主播，跳过自动推送。');
-            return;
-        }
+    // 自动推送直播信息的核心逻辑（针对单个主播）
+    async function autoPushLiveinfoForBroadcaster(broadcaster: BroadcasterConfig) {
+        const { username, targetPlatformChannelId } = broadcaster;
+        const logger = new Logger(`twitch-${username}`);
+        logger.info(`开始执行自动推送任务：${username}`);
 
         try {
             const tokenResponse = await apiClient.post(TWITCH_OAUTH_URL, {
@@ -319,45 +235,43 @@ export async function apply(ctx: Context, config) {
             });
             const accessToken = tokenResponse.data.access_token;
 
-            for (const broadcaster of broadcasters) {
-                const { username, targetPlatformChannelId, autoPushLiveinfoEnabled, autoPushLiveinfoIntervalMinute } = broadcaster;
-                const logger = new Logger(`twitch-${username}`);
+            let dbStatus = await ctx.database.get('twitch_stream_status', { username });
+            let isStreaming = dbStatus[0]?.isStreaming || false;
 
-                if (!autoPushLiveinfoEnabled) continue;
+            if (!isStreaming) {
+                logger.info(`自动推送：主播 ${username} 当前未开播，跳过推送。`);
+                return;
+            }
 
-                let dbStatus = await ctx.database.get('twitch_stream_status', { username });
-                let isStreaming = dbStatus[0]?.isStreaming || false;
+            const usersResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/users?login=${username}`, {
+                headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` }
+            });
+            
+            if (!usersResponse.data.data.length) {
+                logger.warn(`找不到主播 ${username}，跳过自动推送。`);
+                return;
+            }
+            const broadcasterUserId = usersResponse.data.data[0].id;
 
-                if (!isStreaming) {
-                    logger.info(`自动推送：主播 ${username} 当前未开播，跳过推送。`);
-                    continue;
-                }
+            const streamsResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/streams?user_id=${broadcasterUserId}`, {
+                headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` },
+            });
 
-                const usersResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/users?login=${username}`, {
-                    headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` }
-                });
-                const broadcasterUserId = usersResponse.data.data[0].id;
+            const streamData = streamsResponse.data.data;
+            if (streamData.length > 0) {
+                logger.info(`自动推送开播信息：${username}`);
 
-                const streamsResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/streams?user_id=${broadcasterUserId}`, {
-                    headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` },
-                });
-
-                const streamData = streamsResponse.data.data;
-                if (streamData.length > 0) {
-                    logger.info(`自动推送开播信息：${username}`);
-
-                    for (const { platform, channelId } of targetPlatformChannelId) {
-                        const bot = ctx.bots.find(b => b.platform === platform);
-                        if (!bot) {
-                            logger.warn(`未找到平台为 "${platform}" 的机器人，跳过自动推送。`);
-                            continue;
-                        }
-                        await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData);
+                for (const { platform, channelId } of targetPlatformChannelId) {
+                    const bot = ctx.bots.find(b => b.platform === platform);
+                    if (!bot) {
+                        logger.warn(`未找到平台为 "${platform}" 的机器人，跳过自动推送。`);
+                        continue;
                     }
+                    await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData);
                 }
             }
         } catch (error: any) {
-            ctx.logger.error('自动推送直播信息失败：', error.response?.data || error.message);
+            logger.error('自动推送直播信息失败：', error.response?.data || error.message);
         }
     }
 
@@ -378,7 +292,8 @@ export async function apply(ctx: Context, config) {
                     const cronExp = `*/${broadcaster.autoPushLiveinfoIntervalMinute} * * * *`;
                     const logger = new Logger(`twitch-${broadcaster.username}`);
                     logger.info(`已启用自动推送直播信息，主播: ${broadcaster.username}，时间间隔: ${broadcaster.autoPushLiveinfoIntervalMinute} 分钟`);
-                    const autoPushJob = cron.schedule(cronExp, autoPushLiveinfo);
+                    // 为每个主播创建独立的定时任务，只推送该主播的信息
+                    const autoPushJob = cron.schedule(cronExp, () => autoPushLiveinfoForBroadcaster(broadcaster));
                     // 更改：推入对象
                     jobs.push({ username: broadcaster.username, job: autoPushJob });
                 }

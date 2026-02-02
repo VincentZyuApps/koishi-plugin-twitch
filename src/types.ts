@@ -15,7 +15,8 @@ export type ProxyProtocolType = typeof PROXY_PROTOCOL[keyof typeof PROXY_PROTOCO
 
 export const MSG_FORM = {
   TEXT: 'text',
-  IMAGE: 'image',
+  PUPPETEER_IMAGE: 'puppeteer_image',
+  RAW_IMAGE: 'raw_image',
   FORWARD: 'forward',
 } as const;
 
