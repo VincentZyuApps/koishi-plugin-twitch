@@ -66,7 +66,8 @@ export async function apply(ctx: Context, config: Config) {
         bot: Bot,
         channelId: string,
         apiClient: AxiosInstance,
-        streamData: any[]
+        streamData: any[],
+        enableSendLink: boolean = true
     ) {
         if (streamData.length === 0) {
             return '主播当前没有在直播。';
@@ -93,6 +94,7 @@ export async function apply(ctx: Context, config: Config) {
         const thumbnailUrl = payload.thumbnail_url.replace("{width}", "1920").replace("{height}", "1080");
         const coverImageBase64 = await fetchImageAsDataUrl(apiClient, thumbnailUrl);
 
+        // TEXT: 纯文字
         if (config.msgFormArr.includes(MSG_FORM.TEXT)) {
             messageElements.push(
                 `主播${payload.user_name}正在Twitch直播!`,
@@ -100,7 +102,7 @@ export async function apply(ctx: Context, config: Config) {
                 `开播时间: ${payload.started_at}`,
                 `游戏：${payload.game_name}`,
                 `观看人数：${payload.viewer_count}`,
-                `链接：${payload.url}`,
+                ...(enableSendLink ? [`链接：${payload.url}`] : []),
             );
 
             if (session !== undefined) {
@@ -118,7 +120,7 @@ export async function apply(ctx: Context, config: Config) {
                 `开播时间: ${payload.started_at}`,
                 `游戏：${payload.game_name}`,
                 `观看人数：${payload.viewer_count}`,
-                `链接：${payload.url}`,
+                ...(enableSendLink ? [`链接：${payload.url}`] : []),
                 ...(coverImageBase64 ? [h.image(coverImageBase64)] : []),
             ];
 
@@ -138,13 +140,68 @@ export async function apply(ctx: Context, config: Config) {
             const messageArr = [
                 `主播${payload.user_name}正在Twitch直播!`,
                 `${h.image(`data:image/png;base64,${renderRes}`)}`,
-                `链接：${payload.url}`,
+                ...(enableSendLink ? [`链接：${payload.url}`] : []),
             ]
 
             if (session !== undefined) {
                 await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageArr.join('\n')}`);
             } else {
                 await bot.sendMessage(channelId, messageArr.join('\n'));
+            }
+        }
+
+        // FORWARD: 合并转发（仅 OneBot 平台）
+        if (config.msgFormArr.includes(MSG_FORM.FORWARD)) {
+            const currentBot = session?.bot || bot;
+            if (currentBot?.platform === 'onebot') {
+                const escapeXml = (text: string) => {
+                    return text
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
+                };
+
+                let forwardContent = '<message forward>';
+                
+                // 标题消息
+                forwardContent += `<message>📺 Twitch 直播通知\n🎮 主播 ${escapeXml(payload.user_name)} 正在直播!</message>`;
+                
+                // 头像消息
+                if (profileImageBase64) {
+                    forwardContent += `<message><img src="${escapeXml(profileImageBase64)}"/></message>`;
+                }
+                
+                // 直播信息
+                forwardContent += `<message>📝 标题: ${escapeXml(payload.title)}</message>`;
+                forwardContent += `<message>🕐 开播时间: ${escapeXml(payload.started_at)}</message>`;
+                forwardContent += `<message>🎮 游戏: ${escapeXml(payload.game_name)}</message>`;
+                forwardContent += `<message>👀 观看人数: ${payload.viewer_count}</message>`;
+                
+                // 封面图
+                if (coverImageBase64) {
+                    forwardContent += `<message><img src="${escapeXml(coverImageBase64)}"/></message>`;
+                }
+                
+                // 链接
+                if (enableSendLink) {
+                    forwardContent += `<message>🔗 链接: ${escapeXml(payload.url)}</message>`;
+                }
+                
+                forwardContent += '</message>';
+
+                try {
+                    if (session !== undefined) {
+                        await session.send(forwardContent);
+                    } else {
+                        await bot.sendMessage(channelId, forwardContent);
+                    }
+                } catch (err) {
+                    ctx.logger.warn(`合并转发发送失败，可能平台不支持:`, err);
+                }
+            } else {
+                ctx.logger.warn(`合并转发仅支持 OneBot 平台，当前平台: ${currentBot?.platform}`);
             }
         }
 
@@ -196,13 +253,13 @@ export async function apply(ctx: Context, config: Config) {
                     // 更新数据库状态
                     await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: true }]);
 
-                    for (const { platform, channelId } of targetPlatformChannelId) {
+                    for (const { platform, channelId, enableSendLink } of targetPlatformChannelId) {
                         const bot = ctx.bots.find(b => b.platform === platform);
                         if (!bot) {
                             logger.warn(`未找到平台为 "${platform}" 的机器人，跳过发送。`);
                             continue;
                         }
-                        await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData);
+                        await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData, enableSendLink ?? true);
                     }
                 } else if (!newIsStreaming && isStreaming) {
                     logger.info(`轮询发现下播：${username}`);
@@ -261,13 +318,13 @@ export async function apply(ctx: Context, config: Config) {
             if (streamData.length > 0) {
                 logger.info(`自动推送开播信息：${username}`);
 
-                for (const { platform, channelId } of targetPlatformChannelId) {
+                for (const { platform, channelId, enableSendLink } of targetPlatformChannelId) {
                     const bot = ctx.bots.find(b => b.platform === platform);
                     if (!bot) {
                         logger.warn(`未找到平台为 "${platform}" 的机器人，跳过自动推送。`);
                         continue;
                     }
-                    await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData);
+                    await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData, enableSendLink ?? true);
                 }
             }
         } catch (error: any) {
