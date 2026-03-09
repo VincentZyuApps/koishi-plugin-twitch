@@ -121,11 +121,11 @@ export const Config: Schema<Config> = Schema.intersect([
             username: "vincentzyu",
             targetPlatformChannelId: [{
                 platform: "onebot",
-                channelId: "",
+                channelId: "1085190201",
                 enableSendLink: true
             }],
             autoPushLiveinfoEnabled: true,
-            autoPushLiveinfoIntervalMinute: 15,
+            autoPushLiveinfoIntervalMinute: 30,
         }])
             .description("📋 订阅主播列表"),
     }).description("📋 订阅相关配置"),
