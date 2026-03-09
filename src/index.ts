@@ -26,6 +26,44 @@ export async function apply(ctx: Context, config: Config) {
     // 更改：jobs 数组现在存储一个包含 username 和 job 的对象
     const jobs: Array<{ username: string, job: ScheduledTask }> = [];
 
+    // 🔐 Token 缓存
+    let cachedToken: { token: string; expiresAt: number } | null = null;
+
+    /**
+     * 获取 Access Token（支持缓存）
+     */
+    async function getAccessToken(): Promise<string> {
+        const now = Date.now();
+        
+        // 如果启用缓存且缓存有效，直接返回
+        if (config.enableTokenCache && cachedToken && cachedToken.expiresAt > now + 60000) {
+            ctx.logger.debug('使用缓存的 Access Token');
+            return cachedToken.token;
+        }
+
+        // 请求新 token
+        ctx.logger.info('正在获取新的 Access Token...');
+        const tokenResponse = await apiClient.post(TWITCH_OAUTH_URL, {
+            client_id: config.clientId,
+            client_secret: config.clientSecret,
+            grant_type: 'client_credentials',
+        });
+
+        const token = tokenResponse.data.access_token;
+        
+        // 缓存 token
+        if (config.enableTokenCache) {
+            const cacheMs = config.tokenCacheMinutes * 60 * 1000;
+            cachedToken = {
+                token,
+                expiresAt: now + cacheMs
+            };
+            ctx.logger.info(`Access Token 已缓存，有效期 ${config.tokenCacheMinutes} 分钟`);
+        }
+
+        return token;
+    }
+
     // 定义数据库模型
     ctx.model.extend('twitch_stream_status', {
         username: 'string',
@@ -217,59 +255,129 @@ export async function apply(ctx: Context, config: Config) {
         }
 
         try {
-            const tokenResponse = await apiClient.post(TWITCH_OAUTH_URL, {
-                client_id: config.clientId,
-                client_secret: config.clientSecret,
-                grant_type: 'client_credentials',
-            });
-            const accessToken = tokenResponse.data.access_token;
+            const accessToken = await getAccessToken();
 
-            for (const broadcaster of broadcasters) {
-                const { username, targetPlatformChannelId, autoPushLiveinfoEnabled, autoPushLiveinfoIntervalMinute } = broadcaster;
-                const logger = new Logger(`twitch-${username}`);
-
-                let dbStatus = await ctx.database.get('twitch_stream_status', { username });
-                let isStreaming = dbStatus[0]?.isStreaming || false;
-
-                const usersResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/users?login=${username}`, {
+            // 🚀 批量查询模式
+            if (config.enableBatchQuery) {
+                ctx.logger.info(`使用批量查询模式，共 ${broadcasters.length} 个主播`);
+                
+                // 1. 批量获取所有主播的用户信息
+                const userLogins = broadcasters.map(b => b.username);
+                const usersQuery = userLogins.map(u => `login=${u}`).join('&');
+                const usersResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/users?${usersQuery}`, {
                     headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` }
                 });
 
-                if (!usersResponse.data.data.length) {
-                    logger.warn(`找不到主播 ${username}，跳过检查。`);
-                    continue;
+                // 构建 username -> userId 的映射
+                const userIdMap = new Map<string, string>();
+                for (const user of usersResponse.data.data) {
+                    userIdMap.set(user.login.toLowerCase(), user.id);
                 }
-                const broadcasterUserId = usersResponse.data.data[0].id;
 
-                const streamsResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/streams?user_id=${broadcasterUserId}`, {
+                // 2. 批量查询所有主播的直播状态
+                const userIds = Array.from(userIdMap.values());
+                const streamsQuery = userIds.map(id => `user_id=${id}`).join('&');
+                const streamsResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/streams?${streamsQuery}`, {
                     headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` }
                 });
 
-                const streamData = streamsResponse.data.data;
-                const newIsStreaming = streamData.length > 0;
+                // 构建 user_login -> streamData 的映射
+                const streamMap = new Map<string, any>();
+                for (const stream of streamsResponse.data.data) {
+                    streamMap.set(stream.user_login.toLowerCase(), stream);
+                }
 
-                if (newIsStreaming && !isStreaming) {
-                    logger.info(`轮询发现开播：${username}`);
-                    // 更新数据库状态
-                    await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: true }]);
+                // 3. 处理每个主播的状态变化
+                for (const broadcaster of broadcasters) {
+                    const { username, targetPlatformChannelId } = broadcaster;
+                    const logger = new Logger(`twitch-${username}`);
+                    const usernameLower = username.toLowerCase();
 
-                    for (const { platform, channelId, enableSendLink } of targetPlatformChannelId) {
-                        const bot = ctx.bots.find(b => b.platform === platform);
-                        if (!bot) {
-                            logger.warn(`未找到平台为 "${platform}" 的机器人，跳过发送。`);
-                            continue;
-                        }
-                        await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData, enableSendLink ?? true);
+                    if (!userIdMap.has(usernameLower)) {
+                        logger.warn(`找不到主播 ${username}，跳过检查。`);
+                        continue;
                     }
-                } else if (!newIsStreaming && isStreaming) {
-                    logger.info(`轮询发现下播：${username}`);
-                    await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: false }]);
 
-                    const messageToSend = `主播 ${username} 已下播。`;
-                    for (const { platform, channelId } of targetPlatformChannelId) {
-                        const bot = ctx.bots.find(b => b.platform === platform);
-                        if (!bot) continue;
-                        await bot.sendMessage(channelId, messageToSend);
+                    let dbStatus = await ctx.database.get('twitch_stream_status', { username });
+                    let isStreaming = dbStatus[0]?.isStreaming || false;
+
+                    const streamData = streamMap.get(usernameLower);
+                    const newIsStreaming = !!streamData;
+
+                    if (newIsStreaming && !isStreaming) {
+                        logger.info(`轮询发现开播：${username}`);
+                        await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: true }]);
+
+                        for (const { platform, channelId, enableSendLink } of targetPlatformChannelId) {
+                            const bot = ctx.bots.find(b => b.platform === platform);
+                            if (!bot) {
+                                logger.warn(`未找到平台为 "${platform}" 的机器人，跳过发送。`);
+                                continue;
+                            }
+                            await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, [streamData], enableSendLink ?? true);
+                        }
+                    } else if (!newIsStreaming && isStreaming) {
+                        logger.info(`轮询发现下播：${username}`);
+                        await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: false }]);
+
+                        const messageToSend = `主播 ${username} 已下播。`;
+                        for (const { platform, channelId } of targetPlatformChannelId) {
+                            const bot = ctx.bots.find(b => b.platform === platform);
+                            if (!bot) continue;
+                            await bot.sendMessage(channelId, messageToSend);
+                        }
+                    }
+                }
+            } else {
+                // 🐢 逐个查询模式（原来的逻辑）
+                ctx.logger.info(`使用逐个查询模式，共 ${broadcasters.length} 个主播`);
+                
+                for (const broadcaster of broadcasters) {
+                    const { username, targetPlatformChannelId } = broadcaster;
+                    const logger = new Logger(`twitch-${username}`);
+
+                    let dbStatus = await ctx.database.get('twitch_stream_status', { username });
+                    let isStreaming = dbStatus[0]?.isStreaming || false;
+
+                    const usersResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/users?login=${username}`, {
+                        headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` }
+                    });
+
+                    if (!usersResponse.data.data.length) {
+                        logger.warn(`找不到主播 ${username}，跳过检查。`);
+                        continue;
+                    }
+                    const broadcasterUserId = usersResponse.data.data[0].id;
+
+                    const streamsResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/streams?user_id=${broadcasterUserId}`, {
+                        headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` }
+                    });
+
+                    const streamData = streamsResponse.data.data;
+                    const newIsStreaming = streamData.length > 0;
+
+                    if (newIsStreaming && !isStreaming) {
+                        logger.info(`轮询发现开播：${username}`);
+                        await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: true }]);
+
+                        for (const { platform, channelId, enableSendLink } of targetPlatformChannelId) {
+                            const bot = ctx.bots.find(b => b.platform === platform);
+                            if (!bot) {
+                                logger.warn(`未找到平台为 "${platform}" 的机器人，跳过发送。`);
+                                continue;
+                            }
+                            await sendLiveNotification(ctx, config, undefined, bot, channelId, apiClient, streamData, enableSendLink ?? true);
+                        }
+                    } else if (!newIsStreaming && isStreaming) {
+                        logger.info(`轮询发现下播：${username}`);
+                        await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: false }]);
+
+                        const messageToSend = `主播 ${username} 已下播。`;
+                        for (const { platform, channelId } of targetPlatformChannelId) {
+                            const bot = ctx.bots.find(b => b.platform === platform);
+                            if (!bot) continue;
+                            await bot.sendMessage(channelId, messageToSend);
+                        }
                     }
                 }
             }
@@ -285,12 +393,7 @@ export async function apply(ctx: Context, config: Config) {
         logger.info(`开始执行自动推送任务：${username}`);
 
         try {
-            const tokenResponse = await apiClient.post(TWITCH_OAUTH_URL, {
-                client_id: config.clientId,
-                client_secret: config.clientSecret,
-                grant_type: 'client_credentials',
-            });
-            const accessToken = tokenResponse.data.access_token;
+            const accessToken = await getAccessToken();
 
             let dbStatus = await ctx.database.get('twitch_stream_status', { username });
             let isStreaming = dbStatus[0]?.isStreaming || false;
@@ -371,7 +474,9 @@ export async function apply(ctx: Context, config: Config) {
     });
 
     // atc 指令，支持动态查询
-    ctx.command('atc [username:string]', '检查主播开播状态')
+    ctx.command('tw.check [username:string]', '检查主播开播状态, 传入主播名参数。比如这个直播间：https://www.twitch.tv/nacho_dayo，那么就输入`atc nacho_dayo`')
+        .alias('检查twitch开播')
+        .alias('atc')
         .alias('awa_twitch_check')
         .action(async ({ session }, username) => {
             let targetUsername = username;
@@ -388,12 +493,7 @@ export async function apply(ctx: Context, config: Config) {
             logger.info(`检查主播开播状态：${targetUsername}`);
 
             try {
-                const tokenResponse = await apiClient.post(TWITCH_OAUTH_URL, {
-                    client_id: config.clientId,
-                    client_secret: config.clientSecret,
-                    grant_type: 'client_credentials',
-                });
-                const accessToken = tokenResponse.data.access_token;
+                const accessToken = await getAccessToken();
 
                 const usersResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/users?login=${targetUsername}`, {
                     headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` }

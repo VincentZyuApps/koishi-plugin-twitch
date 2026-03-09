@@ -44,7 +44,12 @@ export interface Config {
     pollCron: string;
     enableWebhook: boolean;
 
-    // 📋 订阅相关配置
+    // 🚀性能优化配置
+    enableTokenCache: boolean;
+    tokenCacheMinutes: number;
+    enableBatchQuery: boolean;
+
+    // 📋订阅相关配置
     subscribeList: BroadcasterConfig[];
 
     // 🌐 网络代理相关配置
@@ -93,6 +98,19 @@ export const Config: Schema<Config> = Schema.intersect([
             .disabled().experimental()
             .description("🚧 使用 Webhook 而不是轮询来查询主播是否开播。这是一个未来打算增加的功能，放一个 disabled 假按钮在这提醒自己。这个功能可能会比较麻烦，可能需要把你的 Koishi 部署到公网。再加上我好像写不出来，有点问题 hhh，所以就暂时搁置了。如果有能写出来的，欢迎 fork+pr")
     }).description("📺 Twitch 相关配置"),
+
+    // 🚀 性能优化配置
+    Schema.object({
+        enableTokenCache: Schema.boolean()
+            .default(true)
+            .description("🔐 是否启用 Access Token 缓存。启用后会缓存 token 避免重复请求，提升性能"),
+        tokenCacheMinutes: Schema.number()
+            .min(1).max(180).step(1).default(90)
+            .description("⏱️ Token 缓存时间（单位：分钟）。Twitch token 有效期通常是几小时，建议设置 60-120 分钟"),
+        enableBatchQuery: Schema.boolean()
+            .default(true)
+            .description("🚀 是否启用批量查询主播状态。启用后会一次性查询所有主播，而不是逐个查询，大幅提升效率")
+    }).description("🚀 性能优化配置"),
 
     // 📋 订阅相关配置
     Schema.object({
