@@ -22,6 +22,8 @@
 - 📋 **多主播订阅**：支持同时订阅多个主播，分别推送到不同的群
 - 🌐 **代理支持**：支持 HTTP/HTTPS/SOCKS5 代理，解决网络问题
 - ⏰ **定时轮询**：可自定义轮询间隔，灵活配置
+- ⚡ **性能优化**：Token 缓存 + 批量查询，减少 API 调用
+- 🔤 **自定义字体**：支持自定义字体路径，让图片更好看
 
 ## 📸 效果预览
 
@@ -30,6 +32,12 @@
 
 ### 可爱甘城猫猫推送效果~
 ![甘城猫猫直播推送效果](doc/nacho_dayo直播捏-群里面效果捏.png)
+
+### tw.config 指令 - 查看订阅配置
+![tw.config指令效果](doc/tw.config指令的效果捏.png)
+
+### tw.all 指令 - 查看所有主播状态
+![tw.all指令效果](doc/tw.all指令的效果捏.png)
 
 ## 📦 安装
 
@@ -52,19 +60,36 @@ yarn add koishi-plugin-twitch
 2. 获取 `Client ID` 和 `Client Secret`
 3. 在插件配置中填入对应的值
 
-### 📋 配置项
+### 📋 配置项一览
+
+#### 💬 消息发送形式配置
 
 | 配置项 | 说明 | 默认值 |
 |:---|:---|:---|
-| `msgFormArr` | 消息发送形式（可多选） | `puppeteer_image` |
+| `defaultCheckUsername` | tw.check 默认查询的主播名 | `nacho_dayo` |
+| `customFontPath` | 自定义字体文件绝对路径（留空使用默认字体） | - |
+| `liveCheckMsgFormArr` | 开播检查/定时推送的消息格式 | `puppeteer_image` |
+| `configPrintMsgFormArr` | tw.config 指令的消息格式 | `text` |
+| `allStatusMsgFormArr` | tw.all 指令的消息格式 | `text` |
 | `quoteWhenSend` | 发消息时带引用 | `true` |
 | `localTimezoneOffset` | 本地时区偏移量 | `+8` |
+
+#### 📺 Twitch API 配置
+
+| 配置项 | 说明 | 默认值 |
+|:---|:---|:---|
 | `clientId` | Twitch API Client ID | - |
 | `clientSecret` | Twitch API Client Secret | - |
 | `secret` | 验证密钥（10-20位随机字符串） | - |
 | `pollCron` | 轮询 Cron 表达式 | `0,30 * * * * *` |
-| `subscribeList` | 订阅的主播列表 | `[]` |
-| `proxy` | 代理配置 | - |
+
+#### ⚡ 性能优化配置
+
+| 配置项 | 说明 | 默认值 |
+|:---|:---|:---|
+| `enableTokenCache` | 启用 Token 缓存 | `true` |
+| `tokenCacheMinutes` | Token 缓存时间（分钟） | `50` |
+| `enableBatchQuery` | 启用批量查询（减少 API 调用） | `true` |
 
 ### 📨 消息形式说明
 
@@ -78,11 +103,10 @@ yarn add koishi-plugin-twitch
 ### 指令列表
 
 ```
-twitch                    # 查看帮助
-twitch.sub <username>     # 订阅主播
-twitch.unsub <username>   # 取消订阅
-twitch.list               # 查看订阅列表
-twitch.check <username>   # 手动查询主播直播状态
+tw                        # 查看帮助 / 根指令
+tw.check [username]       # 查询主播直播状态（不填则查询默认主播）
+tw.config                 # 查看当前订阅配置
+tw.all                    # 查看所有订阅主播的状态
 ```
 
 ## 🌐 代理配置
@@ -99,14 +123,43 @@ proxy:
 
 ## 📝 更新日志
 
-- **0.0.4-beta.1+20260310**
-  - 🎉 首个公开测试版本
-  - ✨ 支持多种消息发送形式
-  - ✨ 支持多主播订阅
-  - ✨ 支持代理配置
+### v0.1.0-beta.1 (2026-03-13)
+- ♻️ **代码重构**：模块化拆分，代码更清晰易维护
+- ✨ **新增指令**：`tw.config` 查看配置，`tw.all` 查看所有主播状态
+- 🎨 **统一图片风格**：三个指令的 Puppeteer 渲染风格统一
+- 🔤 **自定义字体**：支持配置自定义字体路径
+- ⚡ **性能优化**：Token 缓存 + 批量查询，大幅减少 API 调用
+
+### v0.0.5-beta.2 (2026-03-11)
+- ⚡ Token 缓存 + 批量查询优化
+
+### v0.0.4-alpha.2 (2026-02-08)
+- ✨ 添加直播链接开关配置
+- ✨ 新增 FORWARD 消息模式（OneBot 平台合并转发）
+
+### v0.0.4-alpha.1 (2026-02-03)
+- ✨ 拆分 IMAGE 为 PUPPETEER_IMAGE / RAW_IMAGE
+- 🐛 修复重复推送问题
+
+## 🏗️ 项目结构
+
+```
+src/
+├── index.ts           # 入口文件、生命周期、定时任务
+├── config.ts          # Schema 配置定义
+├── types.ts           # 类型和常量定义
+├── utils.ts           # 工具函数 + 共享状态
+├── commandCheck.ts    # tw.check 指令
+├── commandConfig.ts   # tw.config 指令
+├── commandAll.ts      # tw.all 指令
+├── renderCheck.ts     # tw.check 渲染逻辑
+├── renderConfig.ts    # tw.config 渲染逻辑
+└── renderAll.ts       # tw.all 渲染逻辑
+```
 
 ## ⚠️ 注意事项
 
 1. 需要安装 `puppeteer` 服务才能使用渲染图片功能
 2. 合并转发功能仅支持 OneBot 平台
 3. 建议配置代理以确保 API 访问稳定
+4. 自定义字体支持 `.ttf`, `.otf`, `.woff`, `.woff2` 格式

@@ -1,15 +1,20 @@
-// index.ts
+// index.ts - 插件主入口
 
-import { Bot, Context, Logger, Session, h } from 'koishi';
-import axios, { AxiosInstance } from 'axios';
-import { SocksProxyAgent } from 'socks-proxy-agent';
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { Context, Logger } from 'koishi';
 import cron, { ScheduledTask } from 'node-cron';
 
-import { PROXY_PROTOCOL, MSG_FORM, TWITCH_API_BASE_URL, TWITCH_OAUTH_URL, LiveInfo } from './types';
+import { TWITCH_API_BASE_URL } from './types';
 import { Config, BroadcasterConfig } from './config';
-import { renderLiveImage } from './render';
-import { fetchImageAsDataUrl, formatDateTime, formatToLocalTime, getProfileImageAsDataUrl } from './utils';
+import { formatDateTime } from './utils';
+
+// 共享模块
+import { initShared, getAccessToken, getApiClient } from './utils';
+import { sendLiveNotification } from './renderCheck';
+
+// 命令模块
+import { registerCheckCommand } from './commandCheck';
+import { registerConfigCommand } from './commandConfig';
+import { registerAllCommand } from './commandAll';
 
 // 导出配置
 export { Config } from './config';
@@ -19,52 +24,15 @@ export const inject = {
     required: ["puppeteer", "database"]
 };
 
-
 export async function apply(ctx: Context, config: Config) {
+    // 初始化共享模块（apiClient、token 缓存等）
+    initShared(ctx, config);
 
-    let apiClient: AxiosInstance;
-    // 更改：jobs 数组现在存储一个包含 username 和 job 的对象
+    const apiClient = getApiClient();
     const jobs: Array<{ username: string, job: ScheduledTask }> = [];
 
-    // 🔐 Token 缓存
-    let cachedToken: { token: string; expiresAt: number } | null = null;
-
-    /**
-     * 获取 Access Token（支持缓存）
-     */
-    async function getAccessToken(): Promise<string> {
-        const now = Date.now();
-        
-        // 如果启用缓存且缓存有效，直接返回
-        if (config.enableTokenCache && cachedToken && cachedToken.expiresAt > now + 60000) {
-            ctx.logger.debug('使用缓存的 Access Token');
-            return cachedToken.token;
-        }
-
-        // 请求新 token
-        ctx.logger.info('正在获取新的 Access Token...');
-        const tokenResponse = await apiClient.post(TWITCH_OAUTH_URL, {
-            client_id: config.clientId,
-            client_secret: config.clientSecret,
-            grant_type: 'client_credentials',
-        });
-
-        const token = tokenResponse.data.access_token;
-        
-        // 缓存 token
-        if (config.enableTokenCache) {
-            const cacheMs = config.tokenCacheMinutes * 60 * 1000;
-            cachedToken = {
-                token,
-                expiresAt: now + cacheMs
-            };
-            ctx.logger.info(`Access Token 已缓存，有效期 ${config.tokenCacheMinutes} 分钟`);
-        }
-
-        return token;
-    }
-
-    // 定义数据库模型
+    // ==================== 📦 数据库模型 ====================
+    
     ctx.model.extend('twitch_stream_status', {
         username: 'string',
         isStreaming: 'boolean',
@@ -72,180 +40,8 @@ export async function apply(ctx: Context, config: Config) {
         primary: 'username',
     });
 
-    let proxyAgent;
-    if (config.proxy.enabled) {
-        const proxyUrl = `${config.proxy.protocol}://${config.proxy.host}:${config.proxy.port}`;
-        switch (config.proxy.protocol) {
-            case PROXY_PROTOCOL.HTTP:
-            case PROXY_PROTOCOL.HTTPS:
-                proxyAgent = new HttpsProxyAgent(proxyUrl);
-                break;
-            case PROXY_PROTOCOL.SOCKS4:
-            case PROXY_PROTOCOL.SOCKS5:
-            case PROXY_PROTOCOL.SOCKS5H:
-                proxyAgent = new SocksProxyAgent(proxyUrl);
-                break;
-        }
+    // ==================== 🔄 轮询检查函数 ====================
 
-        apiClient = axios.create({
-            httpsAgent: proxyAgent
-        });
-        ctx.logger.info(`已启用代理 (${config.proxy.protocol})：${config.proxy.host}:${config.proxy.port}`);
-    } else {
-        apiClient = axios.create();
-        ctx.logger.info('未启用代理。');
-    }
-
-    // 抽象出解析和发送消息的函数
-    async function sendLiveNotification(
-        ctx: Context,
-        config,
-        session: Session,
-        bot: Bot,
-        channelId: string,
-        apiClient: AxiosInstance,
-        streamData: any[],
-        enableSendLink: boolean = true
-    ) {
-        if (streamData.length === 0) {
-            return '主播当前没有在直播。';
-        }
-
-        const stream = streamData[0];
-
-        const payload: LiveInfo = {
-            user_name: stream.user_name,
-            title: stream.title,
-            // started_at: stream.started_at,
-            started_at: formatToLocalTime(stream.started_at, config.localTimezoneOffset),
-            game_name: stream.game_name,
-            viewer_count: stream.viewer_count,
-            user_login: stream.user_login,
-            url: `https://www.twitch.tv/${stream.user_login}`,
-            profile_image_url: stream.profile_image_url,
-            thumbnail_url: stream.thumbnail_url,
-        };
-
-        let messageElements = [];
-
-        const profileImageBase64 = await getProfileImageAsDataUrl(ctx, config, apiClient, payload.user_login);
-        const thumbnailUrl = payload.thumbnail_url.replace("{width}", "1920").replace("{height}", "1080");
-        const coverImageBase64 = await fetchImageAsDataUrl(apiClient, thumbnailUrl);
-
-        // TEXT: 纯文字
-        if (config.msgFormArr.includes(MSG_FORM.TEXT)) {
-            messageElements.push(
-                `主播${payload.user_name}正在Twitch直播!`,
-                `标题：${payload.title}`,
-                `开播时间: ${payload.started_at}`,
-                `游戏：${payload.game_name}`,
-                `观看人数：${payload.viewer_count}`,
-                ...(enableSendLink ? [`链接：${payload.url}`] : []),
-            );
-
-            if (session !== undefined) {
-                await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageElements.join('\n')}`);
-            } else {
-                await bot.sendMessage(channelId, messageElements.join('\n'));
-            }
-        }
-
-        // RAW_IMAGE: 直接发送头像 + 封面图
-        if (config.msgFormArr.includes(MSG_FORM.RAW_IMAGE)) {
-            const rawImageElements = [
-                `主播${payload.user_name}正在Twitch直播!`,
-                ...(profileImageBase64 ? [h.image(profileImageBase64)] : []),
-                `开播时间: ${payload.started_at}`,
-                `游戏：${payload.game_name}`,
-                `观看人数：${payload.viewer_count}`,
-                ...(enableSendLink ? [`链接：${payload.url}`] : []),
-                ...(coverImageBase64 ? [h.image(coverImageBase64)] : []),
-            ];
-
-            if (session !== undefined) {
-                await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${rawImageElements.join('\n')}`);
-            } else {
-                await bot.sendMessage(channelId, rawImageElements.join('\n'));
-            }
-        }
-
-        // PUPPETEER_IMAGE: Puppeteer 渲染模板图
-        if (config.msgFormArr.includes(MSG_FORM.PUPPETEER_IMAGE)) {
-            // Fix: Added coverImageBase64 and profileImageBase64 as arguments
-            const renderRes = await renderLiveImage(ctx, payload, coverImageBase64, profileImageBase64);
-            if (!renderRes) return;
-
-            const messageArr = [
-                `主播${payload.user_name}正在Twitch直播!`,
-                `${h.image(`data:image/png;base64,${renderRes}`)}`,
-                ...(enableSendLink ? [`链接：${payload.url}`] : []),
-            ]
-
-            if (session !== undefined) {
-                await session.send(`${config.quoteWhenSend ? h.quote(session.messageId) : ''}${messageArr.join('\n')}`);
-            } else {
-                await bot.sendMessage(channelId, messageArr.join('\n'));
-            }
-        }
-
-        // FORWARD: 合并转发（仅 OneBot 平台）
-        if (config.msgFormArr.includes(MSG_FORM.FORWARD)) {
-            const currentBot = session?.bot || bot;
-            if (currentBot?.platform === 'onebot') {
-                const escapeXml = (text: string) => {
-                    return text
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;')
-                        .replace(/'/g, '&#39;');
-                };
-
-                let forwardContent = '<message forward>';
-                
-                // 标题消息
-                forwardContent += `<message>📺 Twitch 直播通知\n🎮 主播 ${escapeXml(payload.user_name)} 正在直播!</message>`;
-                
-                // 头像消息
-                if (profileImageBase64) {
-                    forwardContent += `<message><img src="${escapeXml(profileImageBase64)}"/></message>`;
-                }
-                
-                // 直播信息
-                forwardContent += `<message>📝 标题: ${escapeXml(payload.title)}</message>`;
-                forwardContent += `<message>🕐 开播时间: ${escapeXml(payload.started_at)}</message>`;
-                forwardContent += `<message>🎮 游戏: ${escapeXml(payload.game_name)}</message>`;
-                forwardContent += `<message>👀 观看人数: ${payload.viewer_count}</message>`;
-                
-                // 封面图
-                if (coverImageBase64) {
-                    forwardContent += `<message><img src="${escapeXml(coverImageBase64)}"/></message>`;
-                }
-                
-                // 链接
-                if (enableSendLink) {
-                    forwardContent += `<message>🔗 链接: ${escapeXml(payload.url)}</message>`;
-                }
-                
-                forwardContent += '</message>';
-
-                try {
-                    if (session !== undefined) {
-                        await session.send(forwardContent);
-                    } else {
-                        await bot.sendMessage(channelId, forwardContent);
-                    }
-                } catch (err) {
-                    ctx.logger.warn(`合并转发发送失败，可能平台不支持:`, err);
-                }
-            } else {
-                ctx.logger.warn(`合并转发仅支持 OneBot 平台，当前平台: ${currentBot?.platform}`);
-            }
-        }
-
-    }
-
-    // 轮询检查函数
     async function checkStreamStatus() {
         ctx.logger.info(`(当前时间：${formatDateTime()})开始执行轮询任务... `);
         const broadcasters = config.subscribeList;
@@ -260,7 +56,7 @@ export async function apply(ctx: Context, config: Config) {
             // 🚀 批量查询模式
             if (config.enableBatchQuery) {
                 ctx.logger.info(`使用批量查询模式，共 ${broadcasters.length} 个主播`);
-                
+
                 // 1. 批量获取所有主播的用户信息
                 const userLogins = broadcasters.map(b => b.username);
                 const usersQuery = userLogins.map(u => `login=${u}`).join('&');
@@ -329,9 +125,9 @@ export async function apply(ctx: Context, config: Config) {
                     }
                 }
             } else {
-                // 🐢 逐个查询模式（原来的逻辑）
+                // 🐢 逐个查询模式
                 ctx.logger.info(`使用逐个查询模式，共 ${broadcasters.length} 个主播`);
-                
+
                 for (const broadcaster of broadcasters) {
                     const { username, targetPlatformChannelId } = broadcaster;
                     const logger = new Logger(`twitch-${username}`);
@@ -386,7 +182,8 @@ export async function apply(ctx: Context, config: Config) {
         }
     }
 
-    // 自动推送直播信息的核心逻辑（针对单个主播）
+    // ==================== 📤 自动推送函数 ====================
+
     async function autoPushLiveinfoForBroadcaster(broadcaster: BroadcasterConfig) {
         const { username, targetPlatformChannelId } = broadcaster;
         const logger = new Logger(`twitch-${username}`);
@@ -406,7 +203,7 @@ export async function apply(ctx: Context, config: Config) {
             const usersResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/users?login=${username}`, {
                 headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` }
             });
-            
+
             if (!usersResponse.data.data.length) {
                 logger.warn(`找不到主播 ${username}，跳过自动推送。`);
                 return;
@@ -435,12 +232,14 @@ export async function apply(ctx: Context, config: Config) {
         }
     }
 
+    // ==================== 🚀 生命周期钩子 ====================
+
     ctx.on('ready', async () => {
         try {
+            // 启动轮询任务
             if (config.pollCron) {
                 ctx.logger.info(`已启用轮询，Cron表达式：${config.pollCron}`);
                 const pollJob = cron.schedule(config.pollCron, checkStreamStatus);
-                // 更改：推入对象
                 jobs.push({ username: 'general-poll', job: pollJob });
             }
 
@@ -452,9 +251,7 @@ export async function apply(ctx: Context, config: Config) {
                     const cronExp = `*/${broadcaster.autoPushLiveinfoIntervalMinute} * * * *`;
                     const logger = new Logger(`twitch-${broadcaster.username}`);
                     logger.info(`已启用自动推送直播信息，主播: ${broadcaster.username}，时间间隔: ${broadcaster.autoPushLiveinfoIntervalMinute} 分钟`);
-                    // 为每个主播创建独立的定时任务，只推送该主播的信息
                     const autoPushJob = cron.schedule(cronExp, () => autoPushLiveinfoForBroadcaster(broadcaster));
-                    // 更改：推入对象
                     jobs.push({ username: broadcaster.username, job: autoPushJob });
                 }
             }
@@ -465,61 +262,19 @@ export async function apply(ctx: Context, config: Config) {
     });
 
     ctx.on('dispose', () => {
-        // 更改：遍历对象数组
         for (const { username, job } of jobs) {
             job.stop();
-            const logger = new Logger(`twitch-${username}`)
+            const logger = new Logger(`twitch-${username}`);
             logger.info(`(当前时间: ${formatDateTime()})定时任务已停止。主播名: ${username} `);
         }
     });
 
-    // atc 指令，支持动态查询
-    ctx.command('tw.check [username:string]', '检查主播开播状态, 传入主播名参数。比如这个直播间：https://www.twitch.tv/nacho_dayo，那么就输入`atc nacho_dayo`')
-        .alias('检查twitch开播')
-        .alias('atc')
-        .alias('awa_twitch_check')
-        .action(async ({ session }, username) => {
-            let targetUsername = username;
+    // ==================== 📝 注册命令 ====================
 
-            if (!targetUsername) {
-                if (config.subscribeList && config.subscribeList.length > 0) {
-                    targetUsername = config.subscribeList[0].username;
-                } else {
-                    targetUsername = 'vincentzyu';
-                }
-            }
+    // 根指令
+    ctx.command('tw', 'Twitch 插件指令');
 
-            const logger = new Logger(`twitch-${targetUsername}`);
-            logger.info(`检查主播开播状态：${targetUsername}`);
-
-            try {
-                const accessToken = await getAccessToken();
-
-                const usersResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/users?login=${targetUsername}`, {
-                    headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` }
-                });
-                if (!usersResponse.data.data.length) {
-                    return `找不到主播 ${targetUsername}。`;
-                }
-                const broadcasterUserId = usersResponse.data.data[0].id;
-
-                const streamsResponse = await apiClient.get(`${TWITCH_API_BASE_URL}/streams?user_id=${broadcasterUserId}`, {
-                    headers: { 'Client-ID': config.clientId, 'Authorization': `Bearer ${accessToken}` },
-                });
-
-                const streamData = streamsResponse.data.data;
-                // logger.info(`streamData = ${JSON.stringify(streamData)}`)
-
-                if (streamData.length === 0) {
-                    return '主播当前没有在直播。';
-                }
-
-                await sendLiveNotification(ctx, config, session, undefined, undefined, apiClient, streamData);
-
-                return;
-            } catch (error: any) {
-                logger.error('检查开播状态失败：', error.response?.data || error.message);
-                return '检查开播状态时发生错误，请检查日志。';
-            }
-        });
+    registerCheckCommand(ctx, config);   // tw.check
+    registerConfigCommand(ctx, config);  // tw.config
+    registerAllCommand(ctx, config);     // tw.all
 }
