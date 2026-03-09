@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-twitch",
-  "description": "twitch",
-  "version": "0.1.0-beta.1+20260313",
+  "description": "twitch主播主播开播了吗？Koishi 插件：Twitch 直播开播/下播自动推送通知，支持多种消息格式（文字/图片/合并转发）、定时轮询检测、多平台多频道推送及代理配置。 ",
+  "version": "0.1.0-beta.2+20260313",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [

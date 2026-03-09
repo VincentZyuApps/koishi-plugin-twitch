@@ -2,8 +2,10 @@
 
 import { Context, Logger } from 'koishi';
 import cron, { ScheduledTask } from 'node-cron';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 
-import { TWITCH_API_BASE_URL } from './types';
+import { TWITCH_API_BASE_URL, createUsage } from './types';
 import { Config, BroadcasterConfig } from './config';
 import { formatDateTime } from './utils';
 
@@ -23,6 +25,13 @@ export const name = 'twitch';
 export const inject = {
     required: ["puppeteer", "database"]
 };
+
+// 读取 package.json 获取版本号
+const pkg = JSON.parse(
+    readFileSync(resolve(__dirname, '../package.json'), 'utf-8')
+);
+
+export const usage = createUsage(name, pkg.version);
 
 export async function apply(ctx: Context, config: Config) {
     // 初始化共享模块（apiClient、token 缓存等）
