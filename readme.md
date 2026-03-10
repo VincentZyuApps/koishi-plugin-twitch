@@ -28,16 +28,16 @@
 ## 📸 效果预览
 
 ### CS 比赛直播 - 图文/图片/合并转发三种效果展示
-![cs比赛直播效果](doc/cs比赛直播-图文-图片-合并转发三种效果展示捏.png)
+![cs比赛直播效果](doc/cs-stream-three-formats.png)
 
 ### 可爱甘城猫猫推送效果~
-![甘城猫猫直播推送效果](doc/nacho_dayo直播捏-群里面效果捏.png)
+![甘城猫猫直播推送效果](doc/nacho-dayo-stream-notification.png)
 
 ### tw.config 指令 - 查看订阅配置
-![tw.config指令效果](doc/tw.config指令的效果捏.png)
+![tw.config指令效果](doc/tw-config-command.png)
 
 ### tw.all 指令 - 查看所有主播状态
-![tw.all指令效果](doc/tw.all指令的效果捏.png)
+![tw.all指令效果](doc/tw-all-command.png)
 
 ## 📦 安装
 
