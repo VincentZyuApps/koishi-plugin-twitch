@@ -169,7 +169,7 @@ export const Config: Schema<Config> = Schema.intersect([
 				.description("⏱️ 自动推送直播信息的时间间隔（单位：分钟）"),
 		})).default([
 			{
-				username: "nacho_dayo",
+				username: "nacho_dayo", //甘城猫猫！
 				targetPlatformChannelId: [{
 					platform: "onebot",
 					channelId: "1085190201",
@@ -177,8 +177,49 @@ export const Config: Schema<Config> = Schema.intersect([
 				}],
 				autoPushLiveinfoEnabled: true,
 				autoPushLiveinfoIntervalMinute: 30,
-			}, {
-				username: "vincentzyu",
+			}, 
+			{
+				username: "vincentzyu", //插件作者
+				targetPlatformChannelId: [{
+					platform: "onebot",
+					channelId: "1085190201",
+					enableSendLink: true
+				}],
+				autoPushLiveinfoEnabled: true,
+				autoPushLiveinfoIntervalMinute: 30,
+			},
+			{
+				username: "xqc",        //加拿大游戏主播
+				targetPlatformChannelId: [{
+					platform: "onebot",
+					channelId: "1085190201",
+					enableSendLink: true
+				}],
+				autoPushLiveinfoEnabled: true,
+				autoPushLiveinfoIntervalMinute: 30,
+			},
+			{
+				username: "feinberg",   //mc速通玩家
+				targetPlatformChannelId: [{
+					platform: "onebot",
+					channelId: "1085190201",
+					enableSendLink: true
+				}],
+				autoPushLiveinfoEnabled: true,
+				autoPushLiveinfoIntervalMinute: 30,
+			},
+			{
+				username: "feinberg",   //mc速通玩家
+				targetPlatformChannelId: [{
+					platform: "onebot",
+					channelId: "1085190201",
+					enableSendLink: true
+				}],
+				autoPushLiveinfoEnabled: true,
+				autoPushLiveinfoIntervalMinute: 30,
+			},
+			{
+				username: "eslcs",   //CS2比赛
 				targetPlatformChannelId: [{
 					platform: "onebot",
 					channelId: "1085190201",

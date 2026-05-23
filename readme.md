@@ -1,4 +1,4 @@
-![koishi-plugin-twitch](https://socialify.git.ci/VincentZyuApps/koishi-plugin-twitch/image?description=1&font=Bitter&forks=1&issues=1&language=1&logo=https%3A%2F%2Fupload.wikimedia.org%2Fwikipedia%2Fcommons%2Ff%2Ff3%2FKoishi.js_Logo.png%3F_%3D20230331182243&name=1&owner=1&pulls=1&stargazers=1&theme=Auto)
+![koishi-plugin-twitch](https://socialify.git.ci/VincentZyuApps/koishi-plugin-twitch/image?description=1&font=Bitter&forks=1&issues=1&language=1&logo=https%3A%2F%2Fupload.wikimedia.org%2Fwikipedia%2Fcommons%2Ff%2Ff3%2FKoishi.js_Logo.png&name=1&owner=1&pattern=Plus&pulls=1&stargazers=1&theme=Auto)
 
 # koishi-plugin-twitch
 
@@ -13,12 +13,12 @@
 
 ---
 
-📺 **Twitch 直播推送插件** - 订阅你喜欢的 Twitch 主播，开播时自动推送通知到 QQ 群！
+📺 **Twitch 直播推送插件** - 订阅你喜欢的 Twitch 主播，开播时自动推送通知到指定频道(qq,kook,tg,dc等任意koishi支持的聊天平台)！
 
 ## ✨ 功能特点
 
 - 🔔 **开播提醒**：自动检测主播开播状态，第一时间推送通知
-- 🎨 **多种消息格式**：支持纯文字、Puppeteer 渲染图片、原始图片、合并转发等多种形式
+- 🎨 **多种消息格式**：支持纯文字、Puppeteer 渲染图片、原始图片、合并转发`(仅onebot)`等多种形式
 - 📋 **多主播订阅**：支持同时订阅多个主播，分别推送到不同的群
 - 🌐 **代理支持**：支持 HTTP/HTTPS/SOCKS5 代理，解决网络问题
 - ⏰ **定时轮询**：可自定义轮询间隔，灵活配置
