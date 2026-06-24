@@ -14,6 +14,7 @@ export interface TwitchStreamStatus {
 export interface TargetPlatformChannel {
 	platform: string;
 	channelId: string;
+	enabled: boolean;
 	enableSendLink: boolean;
 }
 
@@ -157,6 +158,9 @@ export const Config: Schema<Config> = Schema.intersect([
 				channelId: Schema.string()
 					.description('📍 目标频道 ID（用 inspect 指令查看）')
 					.required(),
+					enabled: Schema.boolean()
+					.description('✅ 是否启用该推送目标')
+					.default(true),
 				enableSendLink: Schema.boolean()
 					.description('🔗 是否发送直播链接')
 					.default(true),
@@ -173,6 +177,7 @@ export const Config: Schema<Config> = Schema.intersect([
 				targetPlatformChannelId: [{
 					platform: "onebot",
 					channelId: "1085190201",
+					enabled: true,
 					enableSendLink: true
 				}],
 				autoPushLiveinfoEnabled: true,
@@ -183,6 +188,7 @@ export const Config: Schema<Config> = Schema.intersect([
 				targetPlatformChannelId: [{
 					platform: "onebot",
 					channelId: "1085190201",
+					enabled: true,
 					enableSendLink: true
 				}],
 				autoPushLiveinfoEnabled: true,
@@ -193,6 +199,7 @@ export const Config: Schema<Config> = Schema.intersect([
 				targetPlatformChannelId: [{
 					platform: "onebot",
 					channelId: "1085190201",
+					enabled: true,
 					enableSendLink: true
 				}],
 				autoPushLiveinfoEnabled: true,
@@ -203,6 +210,7 @@ export const Config: Schema<Config> = Schema.intersect([
 				targetPlatformChannelId: [{
 					platform: "onebot",
 					channelId: "1085190201",
+					enabled: true,
 					enableSendLink: true
 				}],
 				autoPushLiveinfoEnabled: true,
@@ -213,6 +221,7 @@ export const Config: Schema<Config> = Schema.intersect([
 				targetPlatformChannelId: [{
 					platform: "onebot",
 					channelId: "1085190201",
+					enabled: true,
 					enableSendLink: true
 				}],
 				autoPushLiveinfoEnabled: true,
@@ -223,6 +232,7 @@ export const Config: Schema<Config> = Schema.intersect([
 				targetPlatformChannelId: [{
 					platform: "onebot",
 					channelId: "1085190201",
+					enabled: true,
 					enableSendLink: true
 				}],
 				autoPushLiveinfoEnabled: true,

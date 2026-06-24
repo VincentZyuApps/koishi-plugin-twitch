@@ -113,7 +113,7 @@ export async function apply(ctx: Context, config: Config) {
                         logger.info(`轮询发现开播：${username}`);
                         await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: true }]);
 
-                        for (const { platform, channelId, enableSendLink } of targetPlatformChannelId) {
+                        for (const { platform, channelId, enableSendLink } of targetPlatformChannelId.filter(c => c.enabled !== false)) {
                             const bot = ctx.bots.find(b => b.platform === platform);
                             if (!bot) {
                                 logger.warn(`未找到平台为 "${platform}" 的机器人，跳过发送。`);
@@ -126,7 +126,7 @@ export async function apply(ctx: Context, config: Config) {
                         await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: false }]);
 
                         const messageToSend = `主播 ${username} 已下播。`;
-                        for (const { platform, channelId } of targetPlatformChannelId) {
+                        for (const { platform, channelId } of targetPlatformChannelId.filter(c => c.enabled !== false)) {
                             const bot = ctx.bots.find(b => b.platform === platform);
                             if (!bot) continue;
                             await bot.sendMessage(channelId, messageToSend);
@@ -165,7 +165,7 @@ export async function apply(ctx: Context, config: Config) {
                         logger.info(`轮询发现开播：${username}`);
                         await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: true }]);
 
-                        for (const { platform, channelId, enableSendLink } of targetPlatformChannelId) {
+                        for (const { platform, channelId, enableSendLink } of targetPlatformChannelId.filter(c => c.enabled !== false)) {
                             const bot = ctx.bots.find(b => b.platform === platform);
                             if (!bot) {
                                 logger.warn(`未找到平台为 "${platform}" 的机器人，跳过发送。`);
@@ -178,7 +178,7 @@ export async function apply(ctx: Context, config: Config) {
                         await ctx.database.upsert('twitch_stream_status', [{ username, isStreaming: false }]);
 
                         const messageToSend = `主播 ${username} 已下播。`;
-                        for (const { platform, channelId } of targetPlatformChannelId) {
+                        for (const { platform, channelId } of targetPlatformChannelId.filter(c => c.enabled !== false)) {
                             const bot = ctx.bots.find(b => b.platform === platform);
                             if (!bot) continue;
                             await bot.sendMessage(channelId, messageToSend);
@@ -227,7 +227,7 @@ export async function apply(ctx: Context, config: Config) {
             if (streamData.length > 0) {
                 logger.info(`自动推送开播信息：${username}`);
 
-                for (const { platform, channelId, enableSendLink } of targetPlatformChannelId) {
+                for (const { platform, channelId, enableSendLink } of targetPlatformChannelId.filter(c => c.enabled !== false)) {
                     const bot = ctx.bots.find(b => b.platform === platform);
                     if (!bot) {
                         logger.warn(`未找到平台为 "${platform}" 的机器人，跳过自动推送。`);
