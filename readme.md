@@ -33,6 +33,9 @@
 ### 可爱甘城猫猫推送效果~
 ![甘城猫猫直播推送效果](doc/nacho-dayo-stream-notification.png)
 
+### tw.check 指令 - 查询主播直播状态
+![tw.check指令效果](doc/tw-check-command.png)
+
 ### tw.config 指令 - 查看订阅配置
 ![tw.config指令效果](doc/tw-config-command.png)
 
