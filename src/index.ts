@@ -5,7 +5,8 @@ import cron, { ScheduledTask } from 'node-cron';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-import { TWITCH_API_BASE_URL, createUsage } from './types';
+import { TWITCH_API_BASE_URL } from './types';
+import { createUsage } from './usage';
 import { Config, BroadcasterConfig } from './config';
 import { formatDateTime } from './utils';
 

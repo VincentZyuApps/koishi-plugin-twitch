@@ -2,6 +2,7 @@
 
 import { Schema } from 'koishi';
 import { PROXY_PROTOCOL, MSG_FORM } from './types';
+import { DEFAULT_LXGW_WENKAI_PATH } from './utils';
 
 // ==================== 📦 类型定义 ====================
 
@@ -71,8 +72,8 @@ export const Config: Schema<Config> = Schema.intersect([
 			.description("👤 tw.check 指令的默认主播名。不传参数时会查询这个主播"),
 		customFontPath: Schema.string()
 			.role('textarea', { rows: [2, 5] })
-			.default('')
-			.description('🔤 自定义字体文件绝对路径 (如 /home/user/fonts/my.ttf，留空使用默认字体)'),
+			.default(DEFAULT_LXGW_WENKAI_PATH)
+			.description('🔤 自定义字体文件绝对路径（默认展示 cwd/data/fonts；运行时自动使用 ctx.baseDir/data/fonts，并从 Gitee 下载）'),
 		liveCheckMsgFormArr: Schema.array(
 			Schema.union([MSG_FORM.TEXT, MSG_FORM.PUPPETEER_IMAGE, MSG_FORM.RAW_IMAGE, MSG_FORM.FORWARD])
 		)
