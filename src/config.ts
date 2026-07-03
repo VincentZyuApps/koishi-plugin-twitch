@@ -137,7 +137,7 @@ export const Config: Schema<Config> = Schema.intersect([
 			.experimental()
 			.description("🔐 是否启用 Access Token 缓存。启用后会缓存 token 避免重复请求，提升性能"),
 		tokenCacheMinutes: Schema.number()
-			.min(1).max(180).step(1).default(90)
+			.min(1).max(300).step(1).default(90)
 			.experimental()
 			.description("⏱️ Token 缓存时间（单位：分钟）。Twitch token 有效期通常是几小时，建议设置 60-120 分钟"),
 		enableBatchQuery: Schema.boolean()
@@ -170,7 +170,7 @@ export const Config: Schema<Config> = Schema.intersect([
 				.description("🔔 是否启用自动推送直播信息")
 				.default(true),
 			autoPushLiveinfoIntervalMinute: Schema.number()
-				.min(1).max(120).step(1).default(15)
+				.min(1).max(720).step(1).default(15)
 				.description("⏱️ 自动推送直播信息的时间间隔（单位：分钟）"),
 		})).default([
 			{

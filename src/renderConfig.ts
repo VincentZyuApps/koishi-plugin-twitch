@@ -68,7 +68,7 @@ function getConfigTemplateStr(broadcasters: BroadcasterConfig[]): string {
                 font-family: ${fontFamily};
                 background: linear-gradient(135deg, #0e0e10 0%, #18181b 50%, #1f1f23 100%);
                 min-height: 100vh;
-                padding: 24px;
+                padding: 18px;
                 width: 900px;
             }
             
@@ -78,8 +78,8 @@ function getConfigTemplateStr(broadcasters: BroadcasterConfig[]): string {
             
             .header {
                 text-align: center;
-                margin-bottom: 20px;
-                padding: 20px 24px;
+                margin-bottom: 14px;
+                padding: 14px 20px;
                 background: linear-gradient(135deg, rgba(145, 71, 255, 0.2), rgba(145, 71, 255, 0.05));
                 border-radius: 16px;
                 border: 1px solid rgba(145, 71, 255, 0.3);
@@ -87,35 +87,35 @@ function getConfigTemplateStr(broadcasters: BroadcasterConfig[]): string {
             
             .header h1 {
                 color: #fff;
-                font-size: 1.4em;
-                margin-bottom: 12px;
+                font-size: 1.55em;
+                margin-bottom: 8px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                gap: 10px;
+                gap: 8px;
             }
             
             .twitch-icon {
-                width: 24px;
-                height: 24px;
+                width: 23px;
+                height: 23px;
             }
             
             .stats {
                 display: flex;
                 justify-content: center;
-                gap: 32px;
+                gap: 23px;
             }
             
             .stat-item {
                 display: flex;
                 align-items: center;
                 gap: 8px;
-                font-size: 1em;
+                font-size: 1.08em;
             }
             
             .stat-dot {
-                width: 12px;
-                height: 12px;
+                width: 13px;
+                height: 13px;
                 border-radius: 50%;
             }
             
@@ -141,13 +141,13 @@ function getConfigTemplateStr(broadcasters: BroadcasterConfig[]): string {
             .broadcaster-list {
                 display: flex;
                 flex-direction: column;
-                gap: 10px;
+                gap: 7px;
             }
             
             .broadcaster-item {
                 background: rgba(40, 40, 45, 0.9);
-                border-radius: 12px;
-                padding: 14px 18px;
+                border-radius: 13px;
+                padding: 10px 14px;
                 display: flex;
                 align-items: center;
                 border: 1px solid rgba(255, 255, 255, 0.08);
@@ -165,15 +165,15 @@ function getConfigTemplateStr(broadcasters: BroadcasterConfig[]): string {
             .item-left {
                 display: flex;
                 align-items: center;
-                gap: 12px;
-                min-width: 200px;
+                gap: 9px;
+                min-width: 190px;
             }
             
             .index {
                 color: #9147ff;
                 font-weight: bold;
-                font-size: 0.9em;
-                min-width: 28px;
+                font-size: 1em;
+                min-width: 26px;
             }
             
             .status-indicator {
@@ -201,17 +201,17 @@ function getConfigTemplateStr(broadcasters: BroadcasterConfig[]): string {
             .basic-info {
                 display: flex;
                 flex-direction: column;
-                gap: 2px;
+                gap: 1px;
             }
             
             .username {
                 color: #fff;
                 font-weight: 600;
-                font-size: 1em;
+                font-size: 1.13em;
             }
             
             .status-text {
-                font-size: 0.8em;
+                font-size: 0.9em;
             }
             
             .active .status-text {
@@ -224,26 +224,26 @@ function getConfigTemplateStr(broadcasters: BroadcasterConfig[]): string {
             
             .item-middle {
                 flex: 1;
-                padding: 0 20px;
+                padding: 0 14px;
                 display: flex;
                 flex-direction: column;
-                gap: 6px;
+                gap: 3px;
             }
             
             .info-item {
                 display: flex;
                 align-items: center;
-                gap: 8px;
+                gap: 6px;
             }
             
             .info-icon {
-                font-size: 0.85em;
+                font-size: 0.95em;
                 opacity: 0.8;
             }
             
             .info-text {
                 color: #aaa;
-                font-size: 0.85em;
+                font-size: 0.96em;
             }
             
             .active .info-text {
@@ -257,33 +257,33 @@ function getConfigTemplateStr(broadcasters: BroadcasterConfig[]): string {
             .channel-badge {
                 display: flex;
                 align-items: center;
-                gap: 6px;
+                gap: 4px;
                 background: rgba(145, 71, 255, 0.15);
-                padding: 8px 14px;
+                padding: 6px 10px;
                 border-radius: 8px;
                 border: 1px solid rgba(145, 71, 255, 0.3);
             }
             
             .channel-icon {
-                font-size: 0.9em;
+                font-size: 1em;
             }
             
             .channel-count {
                 color: #9147ff;
                 font-weight: bold;
-                font-size: 1.1em;
+                font-size: 1.2em;
             }
             
             .channel-label {
                 color: #888;
-                font-size: 0.8em;
+                font-size: 0.9em;
             }
             
             .footer {
                 text-align: center;
-                margin-top: 16px;
+                margin-top: 10px;
                 color: #555;
-                font-size: 0.75em;
+                font-size: 0.82em;
             }
         </style>
     </head>

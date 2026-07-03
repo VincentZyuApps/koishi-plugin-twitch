@@ -63,14 +63,14 @@ const getTemplateStr = (
           align-items: center;
           width: 100%;
           height: 100vh;
-          padding: 32px;
+          padding: 23px;
           box-sizing: border-box;
         }
 
         .card {
           width: 90%;
           max-width: 800px;
-          border-radius: 24px;
+          border-radius: 23px;
           overflow: hidden;
           background: rgba(30, 30, 40, 0.6);
           backdrop-filter: blur(20px) saturate(160%);
@@ -97,51 +97,52 @@ const getTemplateStr = (
         }
 
         .info {
-          padding: 24px 28px;
+          padding: 18px 23px;
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 8px;
           color: #fff;
+          line-height: 1.25;
         }
 
         .user {
           display: flex;
           align-items: center;
-          gap: 14px;
+          gap: 10px;
         }
 
         .avatar {
-          width: 56px;
-          height: 56px;
+          width: 52px;
+          height: 52px;
           border-radius: 50%;
           border: 2px solid #9147ff;
           object-fit: cover;
         }
 
         .username {
-          font-size: 1.4em;
+          font-size: 1.58em;
           font-weight: bold;
         }
 
         .game {
-          font-size: 1em;
+          font-size: 1.11em;
           color: #cfcfcf;
         }
 
         .title {
-          font-size: 1.2em;
+          font-size: 1.32em;
           font-weight: 600;
           color: #fff;
         }
 
         .time, .viewers {
-          font-size: 0.95em;
+          font-size: 1.06em;
           color: #bdbdbd;
         }
 
         .link {
-          margin-top: 10px;
-          font-size: 0.95em;
+          margin-top: 4px;
+          font-size: 1.06em;
           color: #9147ff;
           text-decoration: none;
           font-weight: 600;
